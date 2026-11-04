@@ -1,0 +1,8 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+// Ruta base de la app. Por defecto "/" (workers.dev). Con dominio: VITE_BASE_PATH=/tools/bracket/
+export default defineConfig({
+  base: process.env.VITE_BASE_PATH || '/',
+  plugins: [react()],
+});
