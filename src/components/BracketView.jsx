@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CARD_H, CARD_W, computeLayout } from '../lib/layout.js';
+import { CARD_W, computeLayout } from '../lib/layout.js';
+import { playerAt, slotOf } from '../lib/engine.js';
 import MatchCard from './MatchCard.jsx';
 
 const MIN_K = 0.15;
@@ -8,7 +9,10 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 /* Lienzo del bracket: se arrastra para moverlo, rueda / pellizco / botones para el zoom,
    y se puede pasar a pantalla completa (útil para proyectarlo o para stream). */
-export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen, readOnly, height = '70vh' }) {
+/* `onSwap` activa el arrastre de nombres: arrastra a un jugador (en cualquier parte del bracket) y suéltalo
+   sobre otra casilla de primera ronda para intercambiarlos. Con ratón empieza al mover; en pantallas
+   táctiles hay que mantener pulsado un momento (si no, el dedo mueve el lienzo). */
+export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen, onSwap, allowBye, readOnly, height = '70vh' }) {
   const layout = useMemo(() => computeLayout(t), [t]);
   const byId = useMemo(() => new Map(t.matches.map((m) => [m.id, m])), [t]);
   const wrapRef = useRef(null);
@@ -19,6 +23,12 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
   const travel = useRef(0);
   const pinch = useRef(0);
   const fitted = useRef('');
+  const canDrag = !!onSwap;
+  const [drag, setDrag] = useState(null); // { id, x, y, over }
+  const dragRef = useRef(null);
+  const pending = useRef(null);
+  const latest = useRef({});
+  latest.current = { t, onSwap, setHl };
 
   const fit = useCallback(() => {
     const el = viewRef.current;
@@ -83,9 +93,31 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
     }
   };
 
+  const cancelPending = () => {
+    clearTimeout(pending.current?.timer);
+    pending.current = null;
+  };
+  const beginDrag = (id, x, y) => {
+    cancelPending();
+    travel.current = 99; // evita que el clic final abra el marcador
+    dragRef.current = { id };
+    latest.current.setHl?.(id);
+    navigator.vibrate?.(8);
+    setDrag({ id, x, y, over: null });
+  };
+
   const onPointerDown = (e) => {
     ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     travel.current = 0;
+    if (canDrag && ptrs.current.size === 1 && (e.pointerType !== 'mouse' || e.button === 0)) {
+      const row = e.target.closest?.('[data-player]');
+      if (row) {
+        const id = row.dataset.player;
+        const mouse = e.pointerType === 'mouse';
+        cancelPending();
+        pending.current = { id, mouse, timer: mouse ? null : setTimeout(() => beginDrag(id, e.clientX, e.clientY), 350) };
+      }
+    }
     if (ptrs.current.size === 2) {
       const [a, b] = [...ptrs.current.values()];
       pinch.current = Math.hypot(a.x - b.x, a.y - b.y);
@@ -96,10 +128,17 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
     if (!prev) return;
     const cur = { x: e.clientX, y: e.clientY };
     ptrs.current.set(e.pointerId, cur);
+    if (dragRef.current) return; // arrastrando un nombre: el lienzo no se mueve
     if (ptrs.current.size === 1) {
       const dx = cur.x - prev.x;
       const dy = cur.y - prev.y;
       travel.current += Math.abs(dx) + Math.abs(dy);
+      const p = pending.current;
+      if (p?.mouse) {
+        if (travel.current > 5) beginDrag(p.id, cur.x, cur.y);
+        return;
+      }
+      if (p && travel.current > 10) cancelPending(); // el dedo se movió antes de la pulsación larga: es un paneo
       if (travel.current > 6) setView((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
     } else if (ptrs.current.size === 2) {
       travel.current = 99;
@@ -122,7 +161,49 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
   const onPointerUp = (e) => {
     ptrs.current.delete(e.pointerId);
     pinch.current = 0;
+    cancelPending();
   };
+
+  // Mientras se arrastra un nombre se escucha en toda la ventana (el cursor puede salir del lienzo).
+  const dragId = drag?.id;
+  useEffect(() => {
+    if (!dragId) return undefined;
+    const targetAt = (e) => document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-slot]')?.dataset.slot ?? null;
+    const move = (e) => {
+      e.preventDefault();
+      setDrag((d) => (d ? { ...d, x: e.clientX, y: e.clientY, over: targetAt(e) } : d));
+    };
+    const end = (e, commit) => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      ptrs.current.clear();
+      latest.current.setHl?.(null);
+      if (!commit || !d) return;
+      const to = targetAt(e);
+      const { t: cur, onSwap: swap } = latest.current;
+      const from = slotOf(cur, d.id);
+      if (to && from && to !== from) swap?.({ from, to, fromPlayer: d.id, toPlayer: playerAt(cur, to) });
+    };
+    const up = (e) => end(e, true);
+    const cancel = (e) => end(e, false);
+    const key = (e) => e.key === 'Escape' && end({ clientX: -1, clientY: -1 }, false);
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('keydown', key);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('keydown', key);
+    };
+  }, [dragId]);
+
+  // Mientras se arrastra, pasar el cursor por otros nombres no cambia el resaltado.
+  const hoverHl = useCallback((v) => {
+    if (!dragRef.current) latest.current.setHl?.(v);
+  }, []);
 
   // Referencia estable para que las tarjetas memorizadas no se repinten en cada render.
   const onOpenRef = useRef(onOpen);
@@ -151,7 +232,7 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onPointerLeave={onPointerUp}
-        className="relative cursor-grab touch-none overflow-hidden active:cursor-grabbing"
+        className={`relative touch-none overflow-hidden ${drag ? 'cursor-grabbing' : 'cursor-grab active:cursor-grabbing'}`}
         style={{ height: full ? 'calc(100vh - 44px)' : height, minHeight: 320 }}
       >
         <div
@@ -197,9 +278,13 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
               colors={colors}
               hlA={!!hl && m.a === hl}
               hlB={!!hl && m.b === hl}
-              setHl={setHl}
+              setHl={hoverHl}
               onOpen={open}
               readOnly={readOnly}
+              canDrag={canDrag}
+              allowBye={allowBye}
+              dropA={drag?.over === `${m.id}:a`}
+              dropB={drag?.over === `${m.id}:b`}
               x={x}
               y={y}
             />
@@ -207,9 +292,20 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
         </div>
       </div>
 
+      {drag && (
+        <div
+          className="pointer-events-none fixed z-[70] rounded-lg border bg-slate-900 px-3 py-1.5 text-sm font-bold shadow-2xl"
+          style={{ left: drag.x + 14, top: drag.y + 14, color: colors.get(drag.id), borderColor: colors.get(drag.id) }}
+        >
+          {names.get(drag.id)}
+          <span className="ml-2 text-[11px] font-normal text-slate-400">{drag.over ? 'suelta para intercambiar' : 'suéltalo sobre otro jugador'}</span>
+        </div>
+      )}
+
       {!full && (
         <p className="border-t border-slate-800 px-3 py-1.5 text-[11px] text-slate-500">
-          Arrastra para mover · rueda o pellizco para el zoom · pasa el cursor sobre un jugador para seguir su camino
+          Arrastra el fondo para mover · rueda o pellizco para el zoom · pasa el cursor sobre un jugador para seguir su camino
+          {canDrag && ' · arrastra un nombre sobre otro para cambiarlos de lugar'}
         </p>
       )}
     </div>

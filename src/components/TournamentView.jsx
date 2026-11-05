@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { autoPlay, clearMatch, isFinished, progress, resetResults, setScore, swissNextRound } from '../lib/engine.js';
+import { autoPlay, clearMatch, isFinished, progress, resetResults, setScore, swapSlots, swissNextRound } from '../lib/engine.js';
 import { encodeShare, toCompact } from '../lib/storage.js';
-import { FORMAT_LABEL, download, maps } from '../lib/helpers.js';
+import { FORMAT_LABEL, download, isElimination, maps } from '../lib/helpers.js';
 import TournamentBody from './TournamentBody.jsx';
 import ScoreModal from './ScoreModal.jsx';
 
@@ -11,6 +11,7 @@ export default function TournamentView({ item, onChange, onBack }) {
   const [upsets, setUpsets] = useState(0.35);
   const [editing, setEditing] = useState(null);
   const [notice, setNotice] = useState('');
+  const [undo, setUndo] = useState(null); // { prev, label } del último intercambio de jugadores
   const shown = sim || t;
   const { names, seeds, colors } = useMemo(() => maps(shown), [shown]);
   const prog = progress(t);
@@ -22,7 +23,27 @@ export default function TournamentView({ item, onChange, onBack }) {
     return () => clearTimeout(id);
   }, [notice]);
 
-  const update = (next) => onChange({ ...item, t: next, updated: Date.now() });
+  const update = (next) => {
+    setUndo(null);
+    onChange({ ...item, t: next, updated: Date.now() });
+  };
+
+  // Arrastrar un nombre sobre otro (o sobre un BYE) intercambia sus lugares en la primera ronda.
+  const swap = ({ from, to, fromPlayer, toPlayer }) => {
+    const next = swapSlots(t, from, to);
+    if (next === t) return;
+    const lost = progress(t).done - progress(next).done;
+    const who = names.get(fromPlayer);
+    const other = toPlayer ? names.get(toPlayer) : 'un BYE';
+    if (lost > 0 && !window.confirm(`Mover a ${who} cambia los cruces y borrará ${lost} resultado${lost > 1 ? 's' : ''}. ¿Continuar?`)) return;
+    onChange({ ...item, t: next, updated: Date.now() });
+    setUndo({ prev: t, label: `${who} ↔ ${other}` });
+  };
+  const undoSwap = () => {
+    if (!undo) return;
+    onChange({ ...item, t: undo.prev, updated: Date.now() });
+    setUndo(null);
+  };
   const rename = (name) => update({ ...t, name: name.slice(0, 80) || 'Torneo' });
 
   const share = async () => {
@@ -81,6 +102,14 @@ export default function TournamentView({ item, onChange, onBack }) {
 
       {notice && <p role="status" className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-sm text-cyan-200">{notice}</p>}
 
+      {undo && (
+        <p role="status" className="flex flex-wrap items-center gap-3 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-sm text-cyan-200">
+          Bracket modificado: {undo.label}
+          <button type="button" className="btn !py-0.5" onClick={undoSwap}>↶ Deshacer</button>
+          <button type="button" className="btn btn-ghost !py-0.5" onClick={() => setUndo(null)}>Listo</button>
+        </p>
+      )}
+
       {sim && (
         <div className="card flex flex-wrap items-center gap-3 border-violet-400/40">
           <p className="text-sm text-violet-200">
@@ -102,6 +131,8 @@ export default function TournamentView({ item, onChange, onBack }) {
         readOnly={!!sim}
         onOpen={open}
         onNextRound={() => update(swissNextRound(t))}
+        onSwap={isElimination(t) && !sim ? swap : undefined}
+        allowBye
         height="68vh"
       />
 

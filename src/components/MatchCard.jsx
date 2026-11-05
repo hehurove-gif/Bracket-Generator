@@ -10,7 +10,7 @@ function slotLabel(src, m) {
   return 'Por definir';
 }
 
-function Row({ id, score, isWinner, isLoser, names, seeds, colors, active, setHl, pending, draw }) {
+function Row({ id, score, isWinner, isLoser, names, seeds, colors, active, setHl, pending, draw, slot, grab, drop }) {
   const bye = id === BYE;
   const real = id && !bye;
   const name = real ? names.get(id) : null;
@@ -19,7 +19,11 @@ function Row({ id, score, isWinner, isLoser, names, seeds, colors, active, setHl
     <div
       onMouseEnter={() => real && setHl?.(id)}
       onMouseLeave={() => setHl?.(null)}
-      className={`flex h-[32px] items-center gap-2 border-l-[3px] pl-2 pr-2.5 text-sm transition-colors ${active ? 'bg-white/10' : ''}`}
+      data-slot={slot || undefined}
+      data-player={grab && real ? id : undefined}
+      className={`flex h-[32px] items-center gap-2 border-l-[3px] pl-2 pr-2.5 text-sm transition-colors ${
+        drop ? 'bg-cyan-400/25 ring-2 ring-inset ring-cyan-300' : active ? 'bg-white/10' : ''
+      } ${grab && real ? 'cursor-grab' : ''}`}
       style={{ borderLeftColor: color ?? 'transparent' }}
     >
       <span className="w-5 shrink-0 text-right font-mono text-[10px] text-slate-500">{real ? seeds.get(id) : ''}</span>
@@ -42,12 +46,14 @@ function Row({ id, score, isWinner, isLoser, names, seeds, colors, active, setHl
 
 /* Tarjeta de un partido. En el bracket va en posición absoluta (x, y); en listas ocupa todo el ancho.
    Está memorizada: pasar el cursor sobre un jugador solo vuelve a pintar las tarjetas donde aparece. */
-function MatchCard({ m, names, seeds, colors, hlA, hlB, setHl, onOpen, readOnly, x, y }) {
+function MatchCard({ m, names, seeds, colors, hlA, hlB, setHl, onOpen, readOnly, canDrag, allowBye, dropA, dropB, x, y }) {
   const fixed = x != null;
   const clickable = !readOnly && (m.status === 'ready' || m.status === 'done');
   const dim = m.status === 'bye' || m.status === 'skipped';
   const winnerA = m.status === 'done' && !m.draw && m.winner === m.a;
   const winnerB = m.status === 'done' && !m.draw && m.winner === m.b;
+  // Casillas de entrada (primera ronda) donde se puede soltar a alguien; los BYE solo si se permite.
+  const slotFor = (src, side) => (canDrag && (src?.t === 'p' || (allowBye && src?.t === 'bye')) ? `${m.id}:${side}` : null);
   const border = m.status === 'ready' ? 'border-cyan-400/50' : m.status === 'done' ? 'border-slate-600' : 'border-slate-800';
 
   return (
@@ -70,9 +76,9 @@ function MatchCard({ m, names, seeds, colors, hlA, hlB, setHl, onOpen, readOnly,
           {m.status === 'skipped' && 'no necesario'}
         </span>
       </div>
-      <Row id={m.a} score={m.scoreA} isWinner={winnerA} isLoser={winnerB} names={names} seeds={seeds} colors={colors} active={hlA} setHl={setHl} pending={slotLabel(m.srcA, m)} draw={m.draw} />
+      <Row id={m.a} score={m.scoreA} isWinner={winnerA} isLoser={winnerB} names={names} seeds={seeds} colors={colors} active={hlA} setHl={setHl} pending={slotLabel(m.srcA, m)} draw={m.draw} slot={slotFor(m.srcA, 'a')} grab={canDrag} drop={dropA} />
       <div className="h-px bg-slate-800" />
-      <Row id={m.b} score={m.scoreB} isWinner={winnerB} isLoser={winnerA} names={names} seeds={seeds} colors={colors} active={hlB} setHl={setHl} pending={slotLabel(m.srcB, m)} draw={m.draw} />
+      <Row id={m.b} score={m.scoreB} isWinner={winnerB} isLoser={winnerA} names={names} seeds={seeds} colors={colors} active={hlB} setHl={setHl} pending={slotLabel(m.srcB, m)} draw={m.draw} slot={slotFor(m.srcB, 'b')} grab={canDrag} drop={dropB} />
     </div>
   );
 }

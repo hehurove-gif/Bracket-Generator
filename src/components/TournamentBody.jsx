@@ -25,7 +25,7 @@ function RoundList({ t, names, seeds, colors, hl, setHl, onOpen, readOnly }) {
 }
 
 /* Contenido principal de un torneo: bracket (eliminación) o partidos + tabla (round robin / suizo). */
-export default function TournamentBody({ t, readOnly, onOpen, onNextRound, height }) {
+export default function TournamentBody({ t, readOnly, onOpen, onNextRound, onSwap, allowBye, height }) {
   const { names, seeds, colors } = useMemo(() => maps(t), [t]);
   const [hl, setHl] = useState(null);
   const [tab, setTab] = useState('matches');
@@ -35,7 +35,7 @@ export default function TournamentBody({ t, readOnly, onOpen, onNextRound, heigh
     return (
       <div className="space-y-4">
         {finished && <Podium t={t} names={names} colors={colors} />}
-        <BracketView t={t} names={names} seeds={seeds} colors={colors} hl={hl} setHl={setHl} onOpen={onOpen} readOnly={readOnly} height={height} />
+        <BracketView t={t} names={names} seeds={seeds} colors={colors} hl={hl} setHl={setHl} onOpen={onOpen} onSwap={onSwap} allowBye={allowBye} readOnly={readOnly} height={height} />
       </div>
     );
   }

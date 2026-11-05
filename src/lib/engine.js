@@ -501,3 +501,77 @@ export function autoPlay(t, { rng = Math.random, upsets = 0.35 } = {}) {
   }
   return cur;
 }
+
+/* ---------- edición manual del bracket (arrastrar jugadores) ---------- */
+
+const ENTRANT = (src) => src && (src.t === 'p' || src.t === 'bye');
+const srcKey = (side) => (side === 'a' ? 'srcA' : 'srcB');
+export const slotKey = (matchId, side) => `${matchId}:${side}`;
+
+/* Posición inicial ("casilla") de un jugador: la casilla de primera ronda donde entra al bracket. */
+export function slotOf(t, playerId) {
+  for (const m of t.matches) {
+    if (m.srcA?.t === 'p' && m.srcA.id === playerId) return slotKey(m.id, 'a');
+    if (m.srcB?.t === 'p' && m.srcB.id === playerId) return slotKey(m.id, 'b');
+  }
+  return null;
+}
+
+/* Jugador que ocupa una casilla (null si es un BYE). */
+export function playerAt(t, key) {
+  const [id, side] = key.split(':');
+  const src = t.matches.find((m) => m.id === id)?.[srcKey(side)];
+  return src?.t === 'p' ? src.id : null;
+}
+
+/* Intercambia el contenido de dos casillas (jugador↔jugador o jugador↔BYE). Solo eliminación.
+   Los partidos cuyos participantes cambian pierden su marcador automáticamente (lo hace `resolve`). */
+export function swapSlots(t, k1, k2) {
+  if ((t.format !== 'single' && t.format !== 'double') || k1 === k2) return t;
+  const next = clone(t);
+  const [id1, s1] = k1.split(':');
+  const [id2, s2] = k2.split(':');
+  const m1 = next.matches.find((m) => m.id === id1);
+  const m2 = next.matches.find((m) => m.id === id2);
+  if (!m1 || !m2 || !['a', 'b'].includes(s1) || !['a', 'b'].includes(s2)) return t;
+  const a = m1[srcKey(s1)];
+  const b = m2[srcKey(s2)];
+  if (!ENTRANT(a) || !ENTRANT(b) || (a.t === 'bye' && b.t === 'bye')) return t;
+  m1[srcKey(s1)] = b;
+  m2[srcKey(s2)] = a;
+  return resolve(next);
+}
+
+/* Casillas que difieren del bracket estándar, para guardarlas al compartir/exportar. */
+export function slotOverrides(t) {
+  if (t.format !== 'single' && t.format !== 'double') return [];
+  const fresh = createTournament({ name: t.name, format: t.format, names: t.players.map((p) => p.name), settings: t.settings });
+  const byId = new Map(fresh.matches.map((m) => [m.id, m]));
+  const out = [];
+  for (const m of t.matches) {
+    const f = byId.get(m.id);
+    for (const side of ['a', 'b']) {
+      const s = m[srcKey(side)];
+      if (ENTRANT(s) && JSON.stringify(s) !== JSON.stringify(f?.[srcKey(side)])) out.push([m.id, side, s.t === 'bye' ? 'B' : s.id]);
+    }
+  }
+  return out;
+}
+
+export function applyOverrides(t, overrides) {
+  if (!Array.isArray(overrides) || !overrides.length) return t;
+  const next = clone(t);
+  const ids = new Set(next.players.map((p) => p.id));
+  for (const [matchId, side, code] of overrides) {
+    const m = next.matches.find((x) => x.id === matchId);
+    if (!m || !['a', 'b'].includes(side) || !ENTRANT(m[srcKey(side)])) throw new Error('Archivo o enlace inválido');
+    if (code === 'B') m[srcKey(side)] = BYE_SRC;
+    else if (ids.has(code)) m[srcKey(side)] = P(code);
+    else throw new Error('Archivo o enlace inválido');
+  }
+  // Cada jugador debe aparecer exactamente una vez.
+  const seen = new Map();
+  for (const m of next.matches) for (const s of [m.srcA, m.srcB]) if (s?.t === 'p') seen.set(s.id, (seen.get(s.id) || 0) + 1);
+  if (seen.size !== ids.size || [...seen.values()].some((n) => n !== 1)) throw new Error('Archivo o enlace inválido');
+  return resolve(next);
+}

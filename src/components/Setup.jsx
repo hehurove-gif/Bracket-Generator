@@ -53,6 +53,17 @@ export default function Setup({ onCreate, onCancel }) {
     }
   }, [deferred, format, settings, simulate, upsets, simSeed, name]);
 
+  // Arrastrar un jugador del bracket sobre otro intercambia sus seeds (y por tanto sus cruces).
+  const swapSeeds = ({ fromPlayer, toPlayer }) => {
+    if (!toPlayer) return;
+    const i = Number(fromPlayer.slice(1)) - 1;
+    const j = Number(toPlayer.slice(1)) - 1;
+    if (!names[i] || !names[j] || i === j) return;
+    const a = [...names];
+    [a[i], a[j]] = [a[j], a[i]];
+    setNames(a);
+  };
+
   const submit = () => {
     if (error) return;
     onCreate(createTournament({ name, format, names, settings }));
@@ -183,11 +194,11 @@ export default function Setup({ onCreate, onCancel }) {
           <p className="basis-full text-xs text-slate-500">
             {simulate
               ? 'Así podría terminar con este seeding (con 0% de sorpresas siempre gana el mejor seed). No se guarda nada.'
-              : 'Vista previa en vivo: mezcla o reordena a los jugadores para ver cómo cambian los cruces.'}
+              : 'Vista previa en vivo: mezcla o reordena a los jugadores —o arrastra un nombre sobre otro en el bracket— para ver cómo cambian los cruces.'}
           </p>
         </div>
         {preview ? (
-          <TournamentBody t={preview} readOnly height={isElimination(preview) ? '62vh' : undefined} />
+          <TournamentBody t={preview} readOnly onSwap={isElimination(preview) ? swapSeeds : undefined} height={isElimination(preview) ? '62vh' : undefined} />
         ) : (
           <div className="card grid h-72 place-items-center text-center text-sm text-slate-400">
             <p>

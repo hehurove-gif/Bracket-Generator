@@ -211,3 +211,89 @@ test('el nombre queda recortado y se ignoran nombres vacíos', () => {
   assert.throws(() => createTournament({ format: 'double', names: ['a', 'b'] }));
   assert.equal(BYE, 'BYE');
 });
+
+import { swapSlots, slotOf, playerAt, slotOverrides, applyOverrides } from '../src/lib/engine.js';
+
+test('swapSlots: intercambia dos jugadores y reinicia lo que dependía de ellos', () => {
+  let t = make('single', 8);
+  t = autoPlay(t, { rng: mulberry32(1), upsets: 0 });
+  assert.ok(champion(t));
+  const k1 = slotOf(t, 'p1');
+  const k4 = slotOf(t, 'p4');
+  const s = swapSlots(t, k1, k4);
+  assert.equal(playerAt(s, k1), 'p4');
+  assert.equal(playerAt(s, k4), 'p1');
+  assert.equal(slotOf(s, 'p1'), k4);
+  assert.equal(champion(s), null, 'el campeón anterior ya no es válido');
+  assert.ok(progress(s).done < progress(t).done);
+  // Volver a jugar termina normalmente
+  assert.ok(isFinished(autoPlay(s, { rng: mulberry32(2) })));
+});
+
+test('swapSlots: partidos no afectados conservan su resultado', () => {
+  let t = make('single', 8);
+  t = setScore(t, 'W1-1', 1, 0); // 1 vs 8
+  t = setScore(t, 'W1-3', 1, 0); // 2 vs 7
+  const s = swapSlots(t, slotOf(t, 'p4'), slotOf(t, 'p5')); // W1-2 no tiene resultado
+  assert.equal(s.matches.find((m) => m.id === 'W1-1').status, 'done');
+  assert.equal(s.matches.find((m) => m.id === 'W1-3').status, 'done');
+});
+
+test('swapSlots: mover a alguien a un lugar de BYE', () => {
+  let t = make('single', 5); // seeds 1,2,3 con BYE
+  const byeKey = t.matches.find((m) => m.id === 'W1-1').srcB.t === 'bye' ? 'W1-1:b' : null;
+  assert.equal(byeKey, 'W1-1:b');
+  const s = swapSlots(t, slotOf(t, 'p5'), byeKey); // p5 toma el BYE de p1
+  assert.equal(playerAt(s, byeKey), 'p5');
+  assert.equal(s.matches.find((m) => m.id === 'W1-2').srcB.t, 'bye', 'el lugar de p5 ahora es BYE');
+  const done = autoPlay(s, { rng: mulberry32(3) });
+  assert.ok(isFinished(done));
+  assert.equal(done.matches.filter((m) => m.status === 'done').length, 4);
+});
+
+test('swapSlots: no hace nada con BYE↔BYE, casillas inválidas ni round robin', () => {
+  const t = make('single', 5);
+  const same = JSON.stringify(t);
+  assert.equal(JSON.stringify(swapSlots(t, 'W1-1:b', 'W1-3:b')), same);
+  assert.equal(JSON.stringify(swapSlots(t, 'W1-1:a', 'W9-9:a')), same);
+  assert.equal(JSON.stringify(swapSlots(t, 'W2-1:a', 'W1-1:a')), same, 'las casillas de rondas siguientes no se mueven');
+  const rr = make('roundrobin', 4);
+  assert.equal(swapSlots(rr, 'R1-1:a', 'R1-2:a'), rr);
+});
+
+test('swapSlots al azar: single y double siempre terminan y respetan las reglas', () => {
+  for (const format of ['single', 'double']) {
+    for (const n of [3, 5, 6, 7, 11]) {
+      for (let seed = 1; seed <= 8; seed++) {
+        const rng = mulberry32(seed * 97 + n);
+        let t = make(format, n);
+        const slots = t.matches.flatMap((m) => ['a', 'b'].filter((s) => ['p', 'bye'].includes(m[s === 'a' ? 'srcA' : 'srcB']?.t)).map((s) => `${m.id}:${s}`));
+        for (let i = 0; i < 6; i++) t = swapSlots(t, slots[Math.floor(rng() * slots.length)], slots[Math.floor(rng() * slots.length)]);
+        t = autoPlay(t, { rng, upsets: 0.7 });
+        assert.ok(isFinished(t), `${format} n=${n} seed=${seed}`);
+        const champ = champion(t);
+        assert.ok(champ, `${format} n=${n} seed=${seed} sin campeón`);
+        const losses = new Map(t.players.map((p) => [p.id, 0]));
+        t.matches.filter((m) => m.status === 'done').forEach((m) => losses.set(m.loser, losses.get(m.loser) + 1));
+        const maxLoss = format === 'single' ? 1 : 2;
+        for (const [id, l] of losses) {
+          if (id === champ) assert.ok(l <= maxLoss - 1, `${format} n=${n} campeón con ${l} derrotas`);
+          else assert.equal(l, maxLoss, `${format} n=${n} seed=${seed} ${id}`);
+        }
+      }
+    }
+  }
+});
+
+test('overrides: ida y vuelta de los jugadores movidos', () => {
+  let t = make('double', 6);
+  t = swapSlots(t, slotOf(t, 'p3'), slotOf(t, 'p6'));
+  t = swapSlots(t, slotOf(t, 'p5'), 'W1-1:b');
+  const ov = slotOverrides(t);
+  assert.ok(ov.length >= 4);
+  const back = applyOverrides(make('double', 6), ov);
+  assert.deepEqual(back.matches.map((m) => [m.a, m.b]), t.matches.map((m) => [m.a, m.b]));
+  assert.deepEqual(slotOverrides(make('double', 6)), []);
+  assert.throws(() => applyOverrides(make('double', 6), [['W1-1', 'a', 'p9']]));
+  assert.throws(() => applyOverrides(make('double', 6), [['W1-1', 'a', 'p2']]), /inválido/, 'jugador repetido');
+});

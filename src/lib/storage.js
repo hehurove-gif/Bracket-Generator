@@ -1,6 +1,6 @@
 /* Guardado local (localStorage) y compartir por enlace/archivo. Nada sale del navegador:
    el enlace lleva el torneo completo dentro del "#", que ni siquiera se envía a ningún servidor. */
-import { DEFAULT_SETTINGS, MAX_PLAYERS, createTournament, setScore, swissCanAdvance, swissNextRound, resolve } from './engine.js';
+import { DEFAULT_SETTINGS, MAX_PLAYERS, applyOverrides, createTournament, setScore, slotOverrides, swissCanAdvance, swissNextRound, resolve } from './engine.js';
 
 const KEY = 'bracket:v1';
 
@@ -36,6 +36,7 @@ export function toCompact(t) {
     s: t.settings,
     p: t.players.map((p) => p.name),
     r: t.matches.filter((m) => m.scoreA != null && m.scoreB != null).map((m) => [m.id, m.scoreA, m.scoreB]),
+    ...(slotOverrides(t).length ? { x: slotOverrides(t) } : {}), // jugadores movidos a mano
   };
 }
 
@@ -52,6 +53,7 @@ export function fromCompact(c) {
     names: c.p.map((n) => String(n).slice(0, 60)),
     settings,
   });
+  t = applyOverrides(t, c.x);
   const scores = new Map((Array.isArray(c.r) ? c.r : []).map(([id, a, b]) => [id, [a, b]]));
   for (let guard = 0; guard < 1000; guard++) {
     let changed = false;

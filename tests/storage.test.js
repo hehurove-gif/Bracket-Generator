@@ -62,3 +62,15 @@ test('layout doble eliminación: Grand Finals a la derecha, conectada con ambas 
     assert.ok(L.headers.some((h) => h.label === 'Grand Finals'));
   }
 });
+
+import { swapSlots, slotOf } from '../src/lib/engine.js';
+
+test('compartir conserva los jugadores movidos a mano y sus resultados', async () => {
+  let t = createTournament({ format: 'double', names: names(7) });
+  t = swapSlots(t, slotOf(t, 'p2'), slotOf(t, 'p7'));
+  t = swapSlots(t, slotOf(t, 'p4'), 'W1-1:b');
+  const played = autoPlay(t, { rng: mulberry32(9) });
+  const back = await decodeShare(await encodeShare(played));
+  assert.deepEqual(back.matches.map((m) => [m.id, m.a, m.b, m.scoreA, m.scoreB]), played.matches.map((m) => [m.id, m.a, m.b, m.scoreA, m.scoreB]));
+  assert.equal(champion(back), champion(played));
+});

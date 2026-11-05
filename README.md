@@ -10,6 +10,7 @@ Hecho con React, Vite y Tailwind CSS. Parte de las herramientas gratuitas de Het
 - **Seeding**: orden manual (arrastrar o flechas), aleatorio, A–Z o invertido, con vista previa en vivo del bracket.
 - **Simular**: prueba cómo terminaría el torneo con tu seeding (con control de "sorpresas") antes de crearlo, o simula lo que falta de un torneo en curso y decide si conservarlo o descartarlo.
 - **Marcadores**: partido único o al mejor de 3/5/7, empates en round robin/suizo. Si corriges un resultado, lo que dependía de él se reinicia solo.
+- **Arrastrar nombres**: en eliminación simple/doble puedes arrastrar a un jugador sobre otro (o sobre un lugar de BYE) para intercambiarlos y adaptar el bracket a mano. Con ratón empieza al mover; en táctil, con pulsación larga. Si el cambio borra resultados pide confirmación y se puede deshacer. En la vista previa de la configuración intercambia los seeds. Los cambios se conservan al compartir/exportar.
 - **Bracket movible**: arrastrar, zoom con rueda o pellizco, ajustar a pantalla, pantalla completa y resaltado del camino de un jugador.
 - **Compartir**: enlace (el torneo viaja dentro del `#`, comprimido) o archivo `.json`.
 
