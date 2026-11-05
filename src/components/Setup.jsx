@@ -1,6 +1,6 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { DEFAULT_SETTINGS, FORMATS, MAX_PLAYERS, MIN_PLAYERS, autoPlay, createTournament, mulberry32, shuffle, validate } from '../lib/engine.js';
-import { FORMAT_DESC, FORMAT_LABEL, isElimination } from '../lib/helpers.js';
+import { FORMAT_DESC, FORMAT_LABEL, isElimination, playerColor } from '../lib/helpers.js';
 import TournamentBody from './TournamentBody.jsx';
 
 const linesOf = (text) => text.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -146,7 +146,7 @@ export default function Setup({ onCreate, onCancel }) {
                 >
                   <span className="cursor-grab text-slate-600" aria-hidden="true">⠿</span>
                   <span className="w-6 text-right font-mono text-xs text-slate-500">{i + 1}</span>
-                  <span className="min-w-0 flex-1 truncate">{n}</span>
+                  <span className="min-w-0 flex-1 truncate font-medium" style={{ color: playerColor(i) }}>{n}</span>
                   <button type="button" className="btn btn-ghost !px-1.5 !py-0" onClick={() => move(i, i - 1)} disabled={i === 0} aria-label={`Subir ${n}`}>↑</button>
                   <button type="button" className="btn btn-ghost !px-1.5 !py-0" onClick={() => move(i, i + 1)} disabled={i === names.length - 1} aria-label={`Bajar ${n}`}>↓</button>
                   <button type="button" className="btn btn-ghost !px-1.5 !py-0 text-red-300" onClick={() => setNames(names.filter((_, j) => j !== i))} aria-label={`Quitar ${n}`}>✕</button>

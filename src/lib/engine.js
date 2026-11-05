@@ -195,7 +195,7 @@ function clearScores(m) {
 
 /* Recalcula participantes, estado y ganadores de todos los partidos. Muta y devuelve `t`.
    Estados: pending (faltan participantes), ready (listo para jugarse), done, bye, skipped. */
-export function resolve(t) {
+export function resolve(t, play = null) {
   const byId = new Map();
   const need = Math.ceil(t.settings.bestOf / 2);
   const drawsOk = t.settings.allowDraw && (t.format === 'roundrobin' || t.format === 'swiss');
@@ -258,6 +258,7 @@ export function resolve(t) {
     }
     if (m.rec && (m.rec.a !== a || m.rec.b !== b)) clearScores(m); // cambió quién juega: el marcador ya no vale
     m.status = 'ready';
+    if (play && m.scoreA == null) play(m); // simulación: se juega en esta misma pasada
     const { scoreA: sa, scoreB: sb } = m;
     if (sa != null && sb != null) {
       if (sa !== sb && Math.max(sa, sb) >= need) {
@@ -466,24 +467,18 @@ export const champion = (t) => podium(t).find((p) => p.place === 1)?.ids[0] ?? n
 
 /* ---------- simulación ---------- */
 
-/* Juega todo lo que falta. `upsets` (0-1) = qué tan impredecible es: 0 gana siempre el mejor seed, 1 es volado. */
+/* Juega todo lo que falta. `upsets` (0-1) = qué tan impredecible es: 0 gana siempre el mejor seed, 1 es volado.
+   Una sola pasada por ronda: los partidos están ordenados por dependencia, así que cada uno ya conoce a sus
+   participantes cuando le toca (antes se recalculaba todo el torneo después de cada partido). */
 export function autoPlay(t, { rng = Math.random, upsets = 0.35 } = {}) {
   let cur = clone(t);
-  resolve(cur);
   const seedOf = new Map(cur.players.map((p, i) => [p.id, i + 1]));
   const need = Math.ceil(cur.settings.bestOf / 2);
   const exp = 2 * (1 - upsets);
-  for (let guard = 0; guard < 5000; guard++) {
-    const m = cur.matches.find((x) => x.status === 'ready' && !(x.scoreA != null && x.scoreB != null && x.status === 'done'));
-    if (!m) {
-      if (swissCanAdvance(cur)) {
-        cur = swissNextRound(cur);
-        continue;
-      }
-      break;
-    }
-    const ra = (1 / seedOf.get(m.a)) ** exp;
-    const rb = (1 / seedOf.get(m.b)) ** exp;
+  const strength = new Map([...seedOf].map(([id, sd]) => [id, (1 / sd) ** exp]));
+  const play = (m) => {
+    const ra = strength.get(m.a);
+    const rb = strength.get(m.b);
     let sa;
     let sb;
     if (cur.settings.allowDraw && rng() < 0.12) {
@@ -498,7 +493,11 @@ export function autoPlay(t, { rng = Math.random, upsets = 0.35 } = {}) {
     m.scoreA = sa;
     m.scoreB = sb;
     m.rec = { a: m.a, b: m.b };
-    resolve(cur);
+  };
+  for (let guard = 0; guard < 64; guard++) {
+    resolve(cur, play);
+    if (!swissCanAdvance(cur)) break;
+    cur = swissNextRound(cur);
   }
   return cur;
 }

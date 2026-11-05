@@ -45,3 +45,20 @@ test('layout: sin solapamientos y líneas dentro del lienzo', () => {
     }
   }
 });
+
+test('layout doble eliminación: Grand Finals a la derecha, conectada con ambas finales', () => {
+  for (const n of [3, 4, 8, 13, 32]) {
+    const t = createTournament({ format: 'double', names: names(n) });
+    const L = computeLayout(t);
+    const gf = L.nodes.find((x) => x.m.id === 'GF-1');
+    assert.ok(gf, `n=${n} falta GF-1`);
+    assert.ok(L.nodes.find((x) => x.m.id === 'GF-2'), `n=${n} falta GF-2`);
+    const others = L.nodes.filter((x) => x.m.bracket === 'W' || x.m.bracket === 'L');
+    assert.ok(others.every((x) => x.x + CARD_W < gf.x), `n=${n} GF no está a la derecha`);
+    const into = L.lines.filter((l) => l.to === 'GF-1');
+    assert.equal(into.length, 2, `n=${n} conectores a GF-1`);
+    const ys = into.map((l) => l.y1);
+    assert.ok(gf.y + CARD_H / 2 >= Math.min(...ys) && gf.y + CARD_H / 2 <= Math.max(...ys));
+    assert.ok(L.headers.some((h) => h.label === 'Grand Finals'));
+  }
+});

@@ -12,10 +12,22 @@ export const FORMAT_DESC = {
   swiss: 'Rondas por puntos sin eliminar a nadie; empareja parecidos.',
 };
 
+/* Un color por jugador (según su posición de seeding). Los primeros 12 son tonos bien separados;
+   después se desplazan el tono y la luminosidad para no repetirse. Se usa siempre junto al nombre,
+   nunca como único identificador. */
+const HUES = [190, 265, 330, 40, 150, 15, 215, 95, 290, 60, 175, 345];
+export function playerColor(i) {
+  const round = Math.floor(i / HUES.length);
+  const hue = (HUES[i % HUES.length] + round * 23) % 360;
+  const light = 70 + (round % 3) * 4;
+  return `hsl(${hue} 85% ${light}%)`;
+}
+
 export function maps(t) {
   return {
     names: new Map(t.players.map((p) => [p.id, p.name])),
     seeds: new Map(t.players.map((p, i) => [p.id, i + 1])),
+    colors: new Map(t.players.map((p, i) => [p.id, playerColor(i)])),
   };
 }
 

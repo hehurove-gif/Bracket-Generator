@@ -10,7 +10,7 @@ const SECTION_GAP = 44;
 const PAD = 24;
 
 export function roundLabel(bracket, round, maxRound, double) {
-  if (bracket === 'GF') return round === 1 ? 'Gran final' : 'Reset (solo si gana losers)';
+  if (bracket === 'GF') return round === 1 ? 'Grand Finals' : 'Reset (solo si gana losers)';
   if (bracket === '3P') return 'Tercer lugar';
   if (bracket === 'L') return round === maxRound ? 'Final de losers' : `Losers ronda ${round}`;
   const suffix = double ? ' de winners' : '';
@@ -23,7 +23,7 @@ export function roundLabel(bracket, round, maxRound, double) {
 export function computeLayout(t) {
   const double = t.format === 'double';
   const defs = double
-    ? [['W', 'Winners'], ['L', 'Losers'], ['GF', 'Gran final']]
+    ? [['W', 'Winners'], ['L', 'Losers']]
     : [['W', 'Bracket'], ['3P', 'Partido por el tercer lugar']];
   const nodes = [];
   const lines = [];
@@ -68,6 +68,29 @@ export function computeLayout(t) {
     }
     top = bottom + SECTION_GAP;
   }
-  // El reset de la gran final comparte la columna siguiente a GF-1.
+  // Grand Finals: a la derecha de winners y losers, a media altura entre sus dos finalistas, con conectores.
+  const gf = t.matches.filter((m) => m.bracket === 'GF').sort((a, b) => a.round - b.round);
+  if (double && gf.length) {
+    const cols = Math.max(...[...pos.values()].map((n) => Math.round((n.x - PAD) / (CARD_W + COL_GAP)) + 1));
+    const g1 = gf[0];
+    const feeds = [g1.srcA, g1.srcB].map((s) => pos.get(s.m));
+    const gy = feeds.reduce((a, n) => a + n.y, 0) / feeds.length;
+    const gx = PAD + cols * (CARD_W + COL_GAP);
+    gf.forEach((m, i) => {
+      const node = { m, x: gx + i * (CARD_W + COL_GAP), y: gy };
+      pos.set(m.id, node);
+      nodes.push(node);
+      headers.push({ key: `GF${m.round}`, x: node.x, y: gy - ROUND_H + 2, label: roundLabel('GF', m.round, gf.length, true) });
+      width = Math.max(width, node.x + CARD_W + PAD);
+    });
+    const node1 = pos.get(g1.id);
+    for (const n of feeds) {
+      lines.push({ id: `${n.m.id}>${g1.id}`, from: n.m.id, to: g1.id, x1: n.x + CARD_W, y1: n.y + CARD_H / 2, x2: node1.x, y2: node1.y + CARD_H / 2, mid: node1.x - COL_GAP / 2 });
+    }
+    if (gf[1]) {
+      const n2 = pos.get(gf[1].id);
+      lines.push({ id: `${g1.id}>${gf[1].id}`, from: g1.id, to: gf[1].id, x1: node1.x + CARD_W, y1: node1.y + CARD_H / 2, x2: n2.x, y2: n2.y + CARD_H / 2, dashed: true });
+    }
+  }
   return { nodes, lines, headers, titles, width: Math.max(width, 320), height: top - SECTION_GAP + PAD };
 }

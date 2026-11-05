@@ -8,8 +8,9 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 /* Lienzo del bracket: se arrastra para moverlo, rueda / pellizco / botones para el zoom,
    y se puede pasar a pantalla completa (útil para proyectarlo o para stream). */
-export default function BracketView({ t, names, seeds, hl, setHl, onOpen, readOnly, height = '70vh' }) {
+export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen, readOnly, height = '70vh' }) {
   const layout = useMemo(() => computeLayout(t), [t]);
+  const byId = useMemo(() => new Map(t.matches.map((m) => [m.id, m])), [t]);
   const wrapRef = useRef(null);
   const viewRef = useRef(null);
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
@@ -123,10 +124,13 @@ export default function BracketView({ t, names, seeds, hl, setHl, onOpen, readOn
     pinch.current = 0;
   };
 
-  const open = (m) => {
+  // Referencia estable para que las tarjetas memorizadas no se repinten en cada render.
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
+  const open = useCallback((m) => {
     if (travel.current > 6) return; // fue un arrastre, no un clic
-    onOpen?.(m);
-  };
+    onOpenRef.current?.(m);
+  }, []);
 
   return (
     <div ref={wrapRef} className={`relative flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/60 ${full ? 'bg-slate-950' : ''}`}>
@@ -156,9 +160,9 @@ export default function BracketView({ t, names, seeds, hl, setHl, onOpen, readOn
         >
           <svg className="pointer-events-none absolute left-0 top-0" width={layout.width} height={layout.height} aria-hidden="true">
             {layout.lines.map((l) => {
-              const mid = l.x1 + (l.x2 - l.x1) / 2;
+              const mid = l.mid ?? l.x1 + (l.x2 - l.x1) / 2;
               const hot = hl && [l.from, l.to].some((id) => {
-                const m = t.matches.find((x) => x.id === id);
+                const m = byId.get(id);
                 return m && (m.a === hl || m.b === hl);
               });
               return (
@@ -168,6 +172,7 @@ export default function BracketView({ t, names, seeds, hl, setHl, onOpen, readOn
                   fill="none"
                   stroke={hot ? '#22d3ee' : '#334155'}
                   strokeWidth={hot ? 2 : 1.5}
+                  strokeDasharray={l.dashed ? '5 4' : undefined}
                 />
               );
             })}
@@ -189,11 +194,14 @@ export default function BracketView({ t, names, seeds, hl, setHl, onOpen, readOn
               m={m}
               names={names}
               seeds={seeds}
-              hl={hl}
+              colors={colors}
+              hlA={!!hl && m.a === hl}
+              hlB={!!hl && m.b === hl}
               setHl={setHl}
               onOpen={open}
               readOnly={readOnly}
-              style={{ left: x, top: y, width: CARD_W, height: CARD_H }}
+              x={x}
+              y={y}
             />
           ))}
         </div>

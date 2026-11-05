@@ -12,7 +12,7 @@ export default function TournamentView({ item, onChange, onBack }) {
   const [editing, setEditing] = useState(null);
   const [notice, setNotice] = useState('');
   const shown = sim || t;
-  const { names, seeds } = useMemo(() => maps(shown), [shown]);
+  const { names, seeds, colors } = useMemo(() => maps(shown), [shown]);
   const prog = progress(t);
   const pct = prog.total ? Math.round((prog.done / prog.total) * 100) : 0;
 
@@ -112,6 +112,7 @@ export default function TournamentView({ item, onChange, onBack }) {
           t={t}
           names={names}
           seeds={seeds}
+          colors={colors}
           onClose={() => setEditing(null)}
           onSave={(a, b) => update(setScore(t, editingMatch.id, a, b))}
           onClear={() => update(clearMatch(t, editingMatch.id))}

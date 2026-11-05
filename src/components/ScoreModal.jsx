@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
-function Stepper({ label, seed, value, onChange, max, win }) {
+function Stepper({ label, seed, color, value, onChange, max, win }) {
   return (
     <div className={`flex flex-1 flex-col items-center gap-2 rounded-xl border p-3 ${win ? 'border-cyan-400/60 bg-cyan-400/5' : 'border-slate-800'}`}>
-      <p className="max-w-full truncate text-center text-sm font-semibold" title={label}>
+      <p className="max-w-full truncate text-center text-sm font-bold" style={{ color }} title={label}>
         <span className="mr-1 font-mono text-[10px] text-slate-500">{seed}</span>
         {label}
       </p>
@@ -16,7 +16,7 @@ function Stepper({ label, seed, value, onChange, max, win }) {
   );
 }
 
-export default function ScoreModal({ m, t, names, seeds, onSave, onClear, onClose }) {
+export default function ScoreModal({ m, t, names, seeds, colors, onSave, onClear, onClose }) {
   const bestOf = t.settings.bestOf;
   const need = Math.ceil(bestOf / 2);
   const draws = t.settings.allowDraw && (t.format === 'roundrobin' || t.format === 'swiss');
@@ -54,8 +54,8 @@ export default function ScoreModal({ m, t, names, seeds, onSave, onClear, onClos
           <button type="button" className="btn btn-ghost !px-2" onClick={onClose} aria-label="Cerrar">✕</button>
         </div>
         <div className="flex gap-3">
-          <Stepper label={names.get(m.a)} seed={seeds.get(m.a)} value={a} onChange={setA} max={cap} win={a > b} />
-          <Stepper label={names.get(m.b)} seed={seeds.get(m.b)} value={b} onChange={setB} max={cap} win={b > a} />
+          <Stepper label={names.get(m.a)} seed={seeds.get(m.a)} color={colors.get(m.a)} value={a} onChange={setA} max={cap} win={a > b} />
+          <Stepper label={names.get(m.b)} seed={seeds.get(m.b)} color={colors.get(m.b)} value={b} onChange={setB} max={cap} win={b > a} />
         </div>
         <div className="flex gap-2">
           <button type="button" className="btn flex-1" onClick={() => setWinner('a')}>Gana {names.get(m.a)}</button>
