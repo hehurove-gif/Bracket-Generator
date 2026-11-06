@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createTournament, seedOrder, setScore, autoPlay, mulberry32, standings, champion, podium,
+  resolve, shuffle, createTournament, seedOrder, setScore, autoPlay, mulberry32, standings, champion, podium,
   isFinished, swissCanAdvance, swissNextRound, resetResults, progress, validate, BYE,
 } from '../src/lib/engine.js';
 
 const names = (n) => Array.from({ length: n }, (_, i) => `J${i + 1}`);
-const make = (format, n, settings) => createTournament({ format, names: names(n), settings });
+// Los tests de lógica usan Bo1 (un marcador 1-0 decide) salvo que pidan otra cosa; los de Bo por etapa usan makeDefault.
+const make = (format, n, settings) => createTournament({ format, names: names(n), settings: { bestOfEarly: 1, bestOfLate: 1, ...settings } });
+const makeDefault = (format, n, settings) => createTournament({ format, names: names(n), settings });
 const seedOf = (t, id) => t.players.findIndex((p) => p.id === id) + 1;
 
 test('seedOrder estándar', () => {
@@ -115,7 +117,7 @@ test('corregir un resultado anterior limpia lo que dependía de él', () => {
 });
 
 test('mejor de 3: 1-0 no decide, 2-0 sí; empate no vale en eliminación', () => {
-  let t = make('single', 2, { bestOf: 3 });
+  let t = make('single', 2, { bestOfEarly: 3, bestOfLate: 3 });
   t = setScore(t, 'W1-1', 1, 0);
   assert.equal(t.matches[0].status, 'ready');
   t = setScore(t, 'W1-1', 1, 1);
@@ -212,7 +214,7 @@ test('el nombre queda recortado y se ignoran nombres vacíos', () => {
   assert.equal(BYE, 'BYE');
 });
 
-import { swapSlots, slotOf, playerAt, slotOverrides, applyOverrides } from '../src/lib/engine.js';
+import { swapSlots, slotOf, playerAt, slotOverrides, applyOverrides, setDQ, isDQ, arrangementOrder } from '../src/lib/engine.js';
 
 test('swapSlots: intercambia dos jugadores y reinicia lo que dependía de ellos', () => {
   let t = make('single', 8);
@@ -296,4 +298,230 @@ test('overrides: ida y vuelta de los jugadores movidos', () => {
   assert.deepEqual(slotOverrides(make('double', 6)), []);
   assert.throws(() => applyOverrides(make('double', 6), [['W1-1', 'a', 'p9']]));
   assert.throws(() => applyOverrides(make('double', 6), [['W1-1', 'a', 'p2']]), /inválido/, 'jugador repetido');
+});
+
+
+/* ---------- Bo por etapa ---------- */
+
+const boOf = (t, id) => t.matches.find((m) => m.id === id).bo;
+
+test('Bo por defecto: Bo3 en rondas iniciales y Bo5 desde cuartos (16 jugadores)', () => {
+  const t = makeDefault('single', 16);
+  assert.equal(t.settings.bestOfEarly, 3);
+  assert.equal(t.settings.bestOfLate, 5);
+  assert.equal(boOf(t, 'W1-1'), 3, 'ronda de 16');
+  assert.equal(boOf(t, 'W2-1'), 5, 'cuartos');
+  assert.equal(boOf(t, 'W3-1'), 5, 'semifinal');
+  assert.equal(boOf(t, 'W4-1'), 5, 'final');
+});
+
+test('Bo por defecto: nunca toda la bracket es avanzada (8 y 4 jugadores)', () => {
+  const t8 = makeDefault('single', 8);
+  assert.equal(boOf(t8, 'W1-1'), 3, 'los cuartos de un bracket de 8 son iniciales');
+  assert.equal(boOf(t8, 'W2-1'), 5);
+  assert.equal(boOf(t8, 'W3-1'), 5);
+  const t4 = makeDefault('single', 4);
+  assert.equal(boOf(t4, 'W1-1'), 3);
+  assert.equal(boOf(t4, 'W2-1'), 5);
+});
+
+test('Bo: lateFrom semis/final y 3er lugar', () => {
+  const semis = makeDefault('single', 16, { lateFrom: 'semis', thirdPlace: true });
+  assert.deepEqual(['W1-1', 'W2-1', 'W3-1', 'W4-1', '3P-1'].map((id) => boOf(semis, id)), [3, 3, 5, 5, 5]);
+  const fin = makeDefault('single', 16, { lateFrom: 'final' });
+  assert.deepEqual(['W1-1', 'W2-1', 'W3-1', 'W4-1'].map((id) => boOf(fin, id)), [3, 3, 3, 5]);
+  const bo7 = makeDefault('single', 16, { bestOfLate: 7 });
+  assert.equal(boOf(bo7, 'W4-1'), 7);
+});
+
+test('Bo en doble eliminación: losers avanzadas, Grand Finals y reset siempre avanzadas', () => {
+  const t = makeDefault('double', 16);
+  assert.equal(boOf(t, 'W1-1'), 3);
+  assert.equal(boOf(t, 'W2-1'), 5);
+  assert.equal(boOf(t, 'L1-1'), 3);
+  assert.equal(boOf(t, 'L2-1'), 3);
+  assert.equal(boOf(t, 'L3-1'), 5);
+  assert.equal(boOf(t, 'L6-1'), 5, 'final de losers');
+  assert.equal(boOf(t, 'GF-1'), 5);
+  assert.equal(boOf(t, 'GF-2'), 5);
+  const small = makeDefault('double', 4, { bestOfLate: 7 });
+  assert.equal(boOf(small, 'W1-1'), 3);
+  assert.equal(boOf(small, 'L1-1'), 3);
+  assert.equal(boOf(small, 'L2-1'), 7);
+  assert.equal(boOf(small, 'GF-1'), 7);
+});
+
+test('Bo en round robin y suizo: siempre bestOfEarly', () => {
+  for (const f of ['roundrobin', 'swiss']) {
+    const t = makeDefault(f, 6, { bestOfEarly: 5, bestOfLate: 7 });
+    assert.ok(t.matches.every((m) => m.bo === 5), f);
+  }
+});
+
+test('Bo: cada partido pide sus propias victorias (Bo3 = 2, Bo5 = 3)', () => {
+  let t = makeDefault('single', 8);
+  assert.equal(boOf(t, 'W1-1'), 3);
+  t = setScore(t, 'W1-1', 1, 0);
+  assert.equal(t.matches.find((m) => m.id === 'W1-1').status, 'ready');
+  t = setScore(t, 'W1-1', 2, 1);
+  assert.equal(t.matches.find((m) => m.id === 'W1-1').status, 'done');
+  t = setScore(t, 'W1-2', 2, 0); t = setScore(t, 'W1-3', 2, 0); t = setScore(t, 'W1-4', 2, 0);
+  t = setScore(t, 'W2-1', 2, 0); // semifinal Bo5: 2-0 aún no decide
+  assert.equal(t.matches.find((m) => m.id === 'W2-1').status, 'ready');
+  t = setScore(t, 'W2-1', 3, 1);
+  assert.equal(t.matches.find((m) => m.id === 'W2-1').status, 'done');
+});
+
+test('Bo: autoPlay respeta el Bo de cada partido', () => {
+  const t = autoPlay(makeDefault('double', 8), { rng: mulberry32(3) });
+  for (const m of t.matches.filter((x) => x.status === 'done')) {
+    assert.equal(Math.max(m.scoreA, m.scoreB), Math.ceil(m.bo / 2), `${m.id} Bo${m.bo} ${m.scoreA}-${m.scoreB}`);
+  }
+});
+
+test('Bo: compatibilidad con ajustes y torneos guardados con un solo bestOf', () => {
+  const viejo = createTournament({ format: 'single', names: names(4), settings: { bestOf: 1 } });
+  assert.ok(viejo.matches.every((m) => m.bo === 1));
+  assert.equal(viejo.settings.bestOf, undefined);
+  // un torneo guardado antes del cambio: sin `bo` en los partidos y con settings.bestOf
+  const guardado = JSON.parse(JSON.stringify(make('single', 4)));
+  guardado.matches.forEach((m) => delete m.bo);
+  delete guardado.settings.bestOfEarly; delete guardado.settings.bestOfLate;
+  guardado.settings.bestOf = 3;
+  const t = resolve(guardado);
+  assert.ok(t.matches.every((m) => m.bo === 3));
+  assert.equal(setScore(t, 'W1-1', 2, 0).matches.find((m) => m.id === 'W1-1').status, 'done');
+});
+
+/* ---------- DQ ---------- */
+
+const matchOf = (t, id) => t.matches.find((m) => m.id === id);
+
+test('DQ antes de empezar: el rival avanza por forfeit y aparece marcado', () => {
+  let t = make('single', 4);
+  t = setDQ(t, 'p2');
+  assert.ok(isDQ(t, 'p2'));
+  const m = matchOf(t, 'W1-2'); // p2 vs p3
+  assert.equal(m.status, 'done');
+  assert.equal(m.forfeit, 'a');
+  assert.equal(m.winner, 'p3');
+  assert.equal(m.scoreA, null);
+  assert.equal(matchOf(t, 'W2-1').b, 'p3', 'p3 ya está en la final');
+});
+
+test('DQ no pisa un resultado ya jugado, pero sí los partidos que faltan', () => {
+  let t = make('single', 4);
+  t = setScore(t, 'W1-1', 1, 0); // p1 gana
+  t = setScore(t, 'W1-2', 1, 0); // p2 gana
+  t = setDQ(t, 'p2');
+  assert.equal(matchOf(t, 'W1-2').forfeit, null, 'su victoria anterior se conserva');
+  assert.equal(matchOf(t, 'W1-2').scoreA, 1);
+  const f = matchOf(t, 'W2-1'); // p1 vs p2 (DQ)
+  assert.equal(f.forfeit, 'b');
+  assert.equal(f.winner, 'p1');
+  assert.equal(champion(t), 'p1');
+  assert.ok(isFinished(t));
+});
+
+test('DQ desde un partido con marcador parcial: se pierde ese partido', () => {
+  let t = make('single', 4, { bestOfEarly: 3, bestOfLate: 3 });
+  t = setScore(t, 'W1-1', 1, 0);
+  t = setDQ(t, 'p4', true, 'W1-1');
+  const m = matchOf(t, 'W1-1');
+  assert.equal(m.forfeit, 'b');
+  assert.equal(m.winner, 'p1');
+  assert.equal(m.scoreA, null, 'se descarta el marcador parcial');
+});
+
+test('Reincorporar: se deshacen los forfeits y lo que dependía de ellos', () => {
+  let t = make('single', 4);
+  t = setDQ(t, 'p2');
+  t = setScore(t, 'W1-1', 1, 0);
+  t = setScore(t, 'W2-1', 1, 0);
+  assert.ok(champion(t));
+  t = setDQ(t, 'p2', false);
+  assert.ok(!isDQ(t, 'p2'));
+  assert.equal(matchOf(t, 'W1-2').status, 'ready');
+  assert.equal(matchOf(t, 'W2-1').status, 'pending');
+  assert.equal(matchOf(t, 'W2-1').scoreA, null, 'la final se reinicia');
+  assert.equal(champion(t), null);
+});
+
+test('DQ: en doble eliminación el campeón nunca es un descalificado y el torneo termina', () => {
+  for (const n of [3, 4, 5, 8, 11, 16]) {
+    for (let seed = 1; seed <= 6; seed++) {
+      const rng = mulberry32(seed * 131 + n);
+      let t = makeDefault('double', n);
+      const ids = t.players.map((p) => p.id);
+      const quitados = shuffle(ids, rng).slice(0, Math.min(3, n - 1));
+      for (const id of quitados) t = setDQ(t, id);
+      t = autoPlay(t, { rng, upsets: 0.6 });
+      assert.ok(isFinished(t), `n=${n} seed=${seed}`);
+      const champ = champion(t);
+      assert.ok(champ && !isDQ(t, champ), `n=${n} seed=${seed} campeón ${champ}`);
+      // un descalificado no deja marcador en los forfeits
+      for (const m of t.matches.filter((x) => x.forfeit)) assert.equal(m.scoreA, null);
+    }
+  }
+});
+
+test('DQ en round robin: sus partidos pendientes son forfeit y queda al final de la tabla', () => {
+  let t = make('roundrobin', 4);
+  t = setScore(t, 'R1-1', 1, 0);
+  const jugado = matchOf(t, 'R1-1');
+  const dqId = jugado.a;
+  t = setDQ(t, dqId);
+  t = autoPlay(t, { rng: mulberry32(1) });
+  assert.ok(isFinished(t));
+  const st = standings(t);
+  assert.equal(st[st.length - 1].id, dqId);
+  assert.equal(st[st.length - 1].dq, true);
+  assert.equal(matchOf(t, 'R1-1').forfeit, null, 'su resultado previo se conserva');
+  assert.equal(matchOf(t, 'R1-1').winner, dqId);
+});
+
+test('DQ en suizo: ya no se le empareja en las rondas siguientes', () => {
+  let t = make('swiss', 8);
+  t = setDQ(t, 'p3');
+  t = autoPlay(t, { rng: mulberry32(2) });
+  assert.ok(isFinished(t));
+  const apareado = t.matches.filter((m) => m.round >= 2 && (m.a === 'p3' || m.b === 'p3'));
+  assert.equal(apareado.length, 0);
+  assert.equal(standings(t).at(-1).id, 'p3');
+});
+
+test('DQ: ids desconocidos se ignoran y reiniciar resultados quita los DQ', () => {
+  let t = make('single', 4);
+  assert.equal(setDQ(t, 'p99'), t);
+  t = setDQ(t, 'p1');
+  t = resetResults(t);
+  assert.deepEqual(t.dq, []);
+  assert.equal(matchOf(t, 'W1-1').forfeit, null);
+});
+
+/* ---------- orden para editar ---------- */
+
+test('arrangementOrder: recrear con ese orden reproduce el acomodo movido a mano', () => {
+  for (const format of ['single', 'double']) {
+    for (const n of [4, 6, 8, 11]) {
+      let t = make(format, n);
+      t = swapSlots(t, slotOf(t, 'p1'), slotOf(t, 'p2'));
+      t = swapSlots(t, slotOf(t, 'p3'), slotOf(t, 'p4'));
+      const { names: orden, exact } = arrangementOrder(t);
+      assert.ok(exact, `${format} n=${n}`);
+      const rec = createTournament({ format, names: orden, settings: t.settings });
+      const quien = (x, id) => x.players.find((p) => p.id === id)?.name;
+      const a = t.matches.filter((m) => m.round === 1 && m.bracket === 'W').map((m) => [quien(t, m.a) ?? m.a, quien(t, m.b) ?? m.b]);
+      const b = rec.matches.filter((m) => m.round === 1 && m.bracket === 'W').map((m) => [quien(rec, m.a) ?? m.a, quien(rec, m.b) ?? m.b]);
+      assert.deepEqual(b, a, `${format} n=${n}`);
+    }
+  }
+});
+
+test('arrangementOrder: sin cambios devuelve el mismo orden; mover a un BYE no es exacto', () => {
+  const t = make('single', 6);
+  assert.deepEqual(arrangementOrder(t), { names: names(6), exact: true });
+  const movido = swapSlots(t, slotOf(t, 'p6'), 'W1-1:b');
+  assert.equal(arrangementOrder(movido).exact, false);
+  assert.deepEqual(arrangementOrder(make('roundrobin', 4)).names, names(4));
 });

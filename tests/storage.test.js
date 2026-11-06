@@ -74,3 +74,36 @@ test('compartir conserva los jugadores movidos a mano y sus resultados', async (
   assert.deepEqual(back.matches.map((m) => [m.id, m.a, m.b, m.scoreA, m.scoreB]), played.matches.map((m) => [m.id, m.a, m.b, m.scoreA, m.scoreB]));
   assert.equal(champion(back), champion(played));
 });
+
+import { setDQ, setScore, isDQ } from '../src/lib/engine.js';
+
+test('compartir conserva descalificaciones y resultados jugados antes del DQ', async () => {
+  let t = createTournament({ format: 'double', names: names(6), settings: { bestOfEarly: 1, bestOfLate: 1 } });
+  t = setScore(t, 'W1-1', 1, 0); // se juega algo
+  const jugador = t.matches.find((m) => m.id === 'W1-1').winner;
+  t = setDQ(t, jugador); // y luego lo descalifican: su victoria ya jugada debe sobrevivir
+  t = setDQ(t, 'p6');
+  const played = autoPlay(t, { rng: mulberry32(5) });
+  const back = await decodeShare(await encodeShare(played));
+  assert.deepEqual(back.dq.sort(), played.dq.sort());
+  assert.ok(isDQ(back, jugador));
+  assert.deepEqual(
+    back.matches.map((m) => [m.id, m.a, m.b, m.scoreA, m.scoreB, m.forfeit, m.status]),
+    played.matches.map((m) => [m.id, m.a, m.b, m.scoreA, m.scoreB, m.forfeit, m.status]),
+  );
+  assert.equal(champion(back), champion(played));
+});
+
+test('enlaces/archivos con el formato anterior (un solo bestOf) siguen abriendo', () => {
+  const viejo = { v: 1, n: 'Viejo', f: 'single', s: { bestOf: 1, thirdPlace: false }, p: ['A', 'B', 'C', 'D'], r: [['W1-1', 1, 0]] };
+  const t = fromCompact(viejo);
+  assert.ok(t.matches.every((m) => m.bo === 1));
+  assert.equal(t.matches.find((m) => m.id === 'W1-1').status, 'done');
+  const nuevo = fromCompact({ v: 1, n: 'Nuevo', f: 'single', s: { bestOfEarly: 5, bestOfLate: 7, lateFrom: 'semis' }, p: names(8) });
+  assert.equal(nuevo.matches.find((m) => m.id === 'W1-1').bo, 5);
+  assert.equal(nuevo.matches.find((m) => m.id === 'W3-1').bo, 7);
+  // valores inválidos caen al valor por defecto
+  const raro = fromCompact({ v: 1, n: 'X', f: 'single', s: { bestOfEarly: 4, lateFrom: 'nada' }, p: names(4) });
+  assert.equal(raro.settings.bestOfEarly, 3);
+  assert.equal(raro.settings.lateFrom, 'quarters');
+});

@@ -37,6 +37,7 @@ export function toCompact(t) {
     p: t.players.map((p) => p.name),
     r: t.matches.filter((m) => m.scoreA != null && m.scoreB != null).map((m) => [m.id, m.scoreA, m.scoreB]),
     ...(slotOverrides(t).length ? { x: slotOverrides(t) } : {}), // jugadores movidos a mano
+    ...(t.dq?.length ? { d: t.dq } : {}), // descalificados
   };
 }
 
@@ -47,6 +48,7 @@ export function fromCompact(c) {
     const v = c.s?.[k];
     if (typeof v === typeof DEFAULT_SETTINGS[k]) settings[k] = v;
   }
+  if (typeof c.s?.bestOf === 'number' && c.s.bestOfEarly == null) settings.bestOf = c.s.bestOf; // enlaces anteriores
   let t = createTournament({
     name: String(c.n ?? 'Torneo').slice(0, 80),
     format: c.f,
@@ -54,14 +56,20 @@ export function fromCompact(c) {
     settings,
   });
   t = applyOverrides(t, c.x);
+  const valid = new Set(t.players.map((p) => p.id));
+  t.dq = (Array.isArray(c.d) ? c.d : []).filter((id) => valid.has(id));
+  resolve(t);
   const scores = new Map((Array.isArray(c.r) ? c.r : []).map(([id, a, b]) => [id, [a, b]]));
+  // Los marcadores se reaplican en orden de dependencia. Un partido con DQ también puede traer marcador
+  // (se jugó antes de la descalificación), así que se acepta si está listo o decidido por forfeit.
   for (let guard = 0; guard < 1000; guard++) {
     let changed = false;
-    for (const m of t.matches) {
-      const sc = scores.get(m.id);
-      if (sc && m.status === 'ready') {
-        scores.delete(m.id);
-        t = setScore(t, m.id, sc[0], sc[1]);
+    for (const id of [...scores.keys()]) {
+      const m = t.matches.find((x) => x.id === id);
+      if (m && (m.status === 'ready' || m.forfeit)) {
+        const [a, b] = scores.get(id);
+        scores.delete(id);
+        t = setScore(t, id, a, b);
         changed = true;
       }
     }

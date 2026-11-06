@@ -9,9 +9,14 @@ export const FORMATS = ['single', 'double', 'roundrobin', 'swiss'];
 export const MIN_PLAYERS = { single: 2, double: 3, roundrobin: 2, swiss: 4 };
 export const MAX_PLAYERS = 128;
 export const BYE = 'BYE';
+export const BEST_OF_OPTIONS = [3, 5, 7];
+export const LATE_FROM = ['quarters', 'semis', 'final'];
+const LATE_ROUNDS = { quarters: 3, semis: 2, final: 1 }; // rondas (desde el final de winners) que cuentan como avanzadas
 
 export const DEFAULT_SETTINGS = {
-  bestOf: 1, // sets/juegos al mejor de N (1, 3, 5, 7)
+  bestOfEarly: 3, // al mejor de N en las rondas iniciales (la mayoría de torneos: Bo3)
+  bestOfLate: 5, // al mejor de N en las rondas avanzadas, Grand Finals y 3er lugar (Bo5)
+  lateFrom: 'quarters', // dónde empiezan las avanzadas: 'quarters' (cuartos), 'semis' o 'final'
   thirdPlace: false, // partido por el 3er lugar (eliminación simple)
   grandFinalReset: true, // doble eliminación: si gana el de losers, se juega una segunda final
   doubleRoundRobin: false, // round robin a ida y vuelta
@@ -174,6 +179,16 @@ export function createTournament({ name = 'Torneo', format = 'single', names = [
   const err = validate(format, players.length);
   if (err) throw new Error(err);
   const s = { ...DEFAULT_SETTINGS, ...settings };
+  // Compatibilidad: torneos/enlaces anteriores traían un único `bestOf` para todas las rondas.
+  if (settings.bestOf != null && settings.bestOfEarly == null && settings.bestOfLate == null) {
+    s.bestOfEarly = settings.bestOf;
+    s.bestOfLate = settings.bestOf;
+  }
+  delete s.bestOf;
+  const okBo = (v, d) => ([1, 3, 5, 7].includes(v) ? v : d); // 1 solo existe para datos antiguos
+  s.bestOfEarly = okBo(s.bestOfEarly, DEFAULT_SETTINGS.bestOfEarly);
+  s.bestOfLate = okBo(s.bestOfLate, DEFAULT_SETTINGS.bestOfLate);
+  if (!LATE_FROM.includes(s.lateFrom)) s.lateFrom = DEFAULT_SETTINGS.lateFrom;
   if (format === 'swiss' && !s.swissRounds) s.swissRounds = swissRoundCount(players.length);
   if (format !== 'roundrobin' && format !== 'swiss') s.allowDraw = false;
   let matches = [];
@@ -181,8 +196,29 @@ export function createTournament({ name = 'Torneo', format = 'single', names = [
   else if (format === 'double') matches = buildDouble(players, s);
   else if (format === 'roundrobin') matches = buildRoundRobin(players, s);
   else matches = swissPair({ players, matches: [], settings: s, format }, 1);
-  const t = { name: String(name).trim() || 'Torneo', format, settings: s, players, matches };
+  assignBestOf(matches, format, players.length, s);
+  const t = { name: String(name).trim() || 'Torneo', format, settings: s, players, matches, dq: [] };
   return resolve(t);
+}
+
+/* Cada partido lleva su propio "al mejor de N" (`bo`): iniciales → bestOfEarly; avanzadas → bestOfLate.
+   Avanzadas = las últimas N rondas de winners (N según `lateFrom`, sin contar nunca la primera ronda si hay
+   más de una), las rondas finales de losers equivalentes, la Grand Finals (y su reset) y el 3er lugar.
+   Round robin y suizo usan siempre bestOfEarly. */
+function assignBestOf(matches, format, n, s) {
+  if (format !== 'single' && format !== 'double') {
+    matches.forEach((m) => { m.bo = s.bestOfEarly; });
+    return;
+  }
+  const k = Math.log2(pow2(n));
+  const lateN = Math.min(LATE_ROUNDS[s.lateFrom], Math.max(1, k - 1));
+  const losersRounds = 2 * (k - 1);
+  const lateL = Math.min(lateN === 1 ? 1 : 2 * lateN - 2, losersRounds);
+  for (const m of matches) {
+    if (m.bracket === 'W') m.bo = m.round > k - lateN ? s.bestOfLate : s.bestOfEarly;
+    else if (m.bracket === 'L') m.bo = m.round > losersRounds - lateL ? s.bestOfLate : s.bestOfEarly;
+    else m.bo = s.bestOfLate; // GF, reset y 3er lugar
+  }
 }
 
 /* ---------- resolución ---------- */
@@ -197,10 +233,13 @@ function clearScores(m) {
    Estados: pending (faltan participantes), ready (listo para jugarse), done, bye, skipped. */
 export function resolve(t, play = null) {
   const byId = new Map();
-  const need = Math.ceil(t.settings.bestOf / 2);
+  const dq = new Set(t.dq || []);
   const drawsOk = t.settings.allowDraw && (t.format === 'roundrobin' || t.format === 'swiss');
   for (const m of t.matches) {
     byId.set(m.id, m);
+    if (m.bo == null) m.bo = t.settings.bestOf ?? t.settings.bestOfEarly ?? 3; // torneos guardados antes del Bo por etapa
+    const need = Math.ceil(m.bo / 2);
+    m.forfeit = null;
     const get = (src) => {
       switch (src.t) {
         case 'p': return src.id;
@@ -258,7 +297,9 @@ export function resolve(t, play = null) {
     }
     if (m.rec && (m.rec.a !== a || m.rec.b !== b)) clearScores(m); // cambió quién juega: el marcador ya no vale
     m.status = 'ready';
-    if (play && m.scoreA == null) play(m); // simulación: se juega en esta misma pasada
+    const dqA = dq.has(a);
+    const dqB = dq.has(b);
+    if (play && m.scoreA == null && !dqA && !dqB) play(m); // simulación: se juega en esta misma pasada
     const { scoreA: sa, scoreB: sb } = m;
     if (sa != null && sb != null) {
       if (sa !== sb && Math.max(sa, sb) >= need) {
@@ -271,6 +312,13 @@ export function resolve(t, play = null) {
         m.draw = true;
         if (!m.rec) m.rec = { a, b };
       }
+    }
+    // Descalificado (DQ): pierde por forfeit todo partido que aún no tenga un resultado válido.
+    if (m.status === 'ready' && (dqA || dqB)) {
+      m.status = 'done';
+      m.forfeit = dqA ? 'a' : 'b'; // si ambos están descalificados, avanza el de abajo
+      m.winner = dqA ? b : a;
+      m.loser = dqA ? a : b;
     }
   }
   return t;
@@ -299,8 +347,27 @@ export function clearMatch(t, matchId) {
   return resolve(next);
 }
 
+/* Descalifica (on=true) o reincorpora (on=false) a un jugador. Sus partidos pendientes se pierden por forfeit y
+   sus rivales avanzan solos; con `matchId` el partido en curso también se pierde aunque tuviera marcador parcial. */
+export function setDQ(t, playerId, on = true, matchId = null) {
+  if (!t.players.some((p) => p.id === playerId)) return t;
+  const next = clone(t);
+  const set = new Set(next.dq || []);
+  if (on) set.add(playerId);
+  else set.delete(playerId);
+  next.dq = [...set];
+  if (on && matchId) {
+    const m = next.matches.find((x) => x.id === matchId);
+    if (m) clearScores(m);
+  }
+  return resolve(next);
+}
+
+export const isDQ = (t, playerId) => (t.dq || []).includes(playerId);
+
 export function resetResults(t) {
   const next = clone(t);
+  next.dq = [];
   next.matches.forEach(clearScores);
   if (next.format === 'swiss') next.matches = next.matches.filter((m) => m.round === 1);
   return resolve(next);
@@ -309,7 +376,7 @@ export function resetResults(t) {
 /* ---------- tabla de posiciones (round robin y suizo) ---------- */
 
 export function standings(t) {
-  const rows = new Map(t.players.map((p, i) => [p.id, { id: p.id, name: p.name, seed: i + 1, played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0, buchholz: 0, opponents: [], byes: 0 }]));
+  const rows = new Map(t.players.map((p, i) => [p.id, { id: p.id, name: p.name, seed: i + 1, played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0, buchholz: 0, opponents: [], byes: 0, dq: (t.dq || []).includes(p.id) }]));
   const { winPoints, drawPoints } = t.settings;
   for (const m of t.matches) {
     if (m.status === 'bye' && m.winner && m.winner !== BYE && t.format !== 'single' && t.format !== 'double') {
@@ -325,8 +392,8 @@ export function standings(t) {
     const rb = rows.get(m.b);
     ra.played++;
     rb.played++;
-    ra.gf += m.scoreA; ra.ga += m.scoreB;
-    rb.gf += m.scoreB; rb.ga += m.scoreA;
+    ra.gf += m.scoreA ?? 0; ra.ga += m.scoreB ?? 0; // un forfeit no tiene marcador
+    rb.gf += m.scoreB ?? 0; rb.ga += m.scoreA ?? 0;
     ra.opponents.push(m.b);
     rb.opponents.push(m.a);
     if (m.draw) {
@@ -343,6 +410,7 @@ export function standings(t) {
   const list = [...rows.values()];
   const swiss = t.format === 'swiss';
   list.sort((x, y) =>
+    Number(x.dq) - Number(y.dq) || // los descalificados van al final
     y.points - x.points ||
     (swiss ? y.buchholz - x.buchholz : 0) ||
     (y.gf - y.ga) - (x.gf - x.ga) ||
@@ -376,7 +444,7 @@ function swissPair(t, round) {
     const half = order.length / 2;
     pairs = order.slice(0, half).map((id, i) => [id, order[i + half]]);
   } else {
-    const st = standings(t).map((r) => r.id);
+    const st = standings(t).filter((r) => !r.dq).map((r) => r.id); // los DQ ya no se emparejan
     order = st;
     if (order.length % 2) {
       const hadBye = new Set(t.matches.filter((m) => m.status === 'bye' && m.winner !== BYE).map((m) => m.winner));
@@ -473,10 +541,10 @@ export const champion = (t) => podium(t).find((p) => p.place === 1)?.ids[0] ?? n
 export function autoPlay(t, { rng = Math.random, upsets = 0.35 } = {}) {
   let cur = clone(t);
   const seedOf = new Map(cur.players.map((p, i) => [p.id, i + 1]));
-  const need = Math.ceil(cur.settings.bestOf / 2);
   const exp = 2 * (1 - upsets);
   const strength = new Map([...seedOf].map(([id, sd]) => [id, (1 / sd) ** exp]));
   const play = (m) => {
+    const need = Math.ceil(m.bo / 2);
     const ra = strength.get(m.a);
     const rb = strength.get(m.b);
     let sa;
@@ -574,4 +642,31 @@ export function applyOverrides(t, overrides) {
   for (const m of next.matches) for (const s of [m.srcA, m.srcB]) if (s?.t === 'p') seen.set(s.id, (seen.get(s.id) || 0) + 1);
   if (seen.size !== ids.size || [...seen.values()].some((n) => n !== 1)) throw new Error('Archivo o enlace inválido');
   return resolve(next);
+}
+
+/* Orden de jugadores (seeding) que, al recrear el torneo, reproduce el acomodo actual del bracket.
+   Sirve para volver a editar: los cambios hechos arrastrando nombres no se pierden. Si alguien se movió a un
+   lugar de BYE no se puede expresar como orden de seeds: se devuelve el orden original y `exact: false`. */
+export function arrangementOrder(t) {
+  const names = t.players.map((p) => p.name);
+  if (t.format !== 'single' && t.format !== 'double') return { names, exact: true };
+  const fresh = createTournament({ name: t.name, format: t.format, names, settings: t.settings });
+  const order = new Array(names.length);
+  let exact = true;
+  for (const fm of fresh.matches) {
+    const cm = t.matches.find((m) => m.id === fm.id);
+    for (const side of ['a', 'b']) {
+      const f = fm[srcKey(side)];
+      const c = cm?.[srcKey(side)];
+      if (f?.t === 'p') {
+        const who = c?.t === 'p' ? t.players.find((p) => p.id === c.id) : null;
+        if (who) order[Number(f.id.slice(1)) - 1] = who.name;
+        else exact = false;
+      } else if (f?.t === 'bye' && c?.t !== 'bye') {
+        exact = false;
+      }
+    }
+  }
+  if (!exact || order.some((v) => v === undefined)) return { names, exact: false };
+  return { names: order, exact: true };
 }

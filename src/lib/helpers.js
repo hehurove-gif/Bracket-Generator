@@ -33,6 +33,14 @@ export function maps(t) {
 
 export const isElimination = (t) => t.format === 'single' || t.format === 'double';
 
+/* "Bo3", "Bo3 → Bo5" (iniciales → avanzadas) o '' en torneos viejos de partido único. */
+export function boLabel(t) {
+  const e = t.settings.bestOfEarly ?? t.settings.bestOf;
+  const l = t.settings.bestOfLate ?? e;
+  if (!e || e === 1) return '';
+  return !isElimination(t) || e === l ? `Bo${e}` : `Bo${e} → Bo${l}`;
+}
+
 export function download(filename, text, type = 'application/json') {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement('a');
