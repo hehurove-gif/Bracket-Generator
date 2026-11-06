@@ -7,6 +7,7 @@ import Standings from './Standings.jsx';
 import Podium from './Podium.jsx';
 
 function RoundList({ t, names, seeds, colors, hl, setHl, onOpen, readOnly }) {
+  const dqSet = new Set(t.dq || []);
   const rounds = [...new Set(t.matches.map((m) => m.round))].sort((a, b) => a - b);
   return (
     <div className="space-y-6">
@@ -15,7 +16,7 @@ function RoundList({ t, names, seeds, colors, hl, setHl, onOpen, readOnly }) {
           <h3 className="mb-2 font-mono text-xs uppercase tracking-widest text-violet-300">Ronda {r}</h3>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {t.matches.filter((m) => m.round === r).map((m) => (
-              <MatchCard key={m.id} m={m} names={names} seeds={seeds} colors={colors} hlA={!!hl && m.a === hl} hlB={!!hl && m.b === hl} setHl={setHl} onOpen={onOpen} readOnly={readOnly} />
+              <MatchCard key={m.id} m={m} names={names} seeds={seeds} colors={colors} hlA={!!hl && m.a === hl} hlB={!!hl && m.b === hl} dqA={dqSet.has(m.a)} dqB={dqSet.has(m.b)} setHl={setHl} onOpen={onOpen} readOnly={readOnly} />
             ))}
           </div>
         </section>

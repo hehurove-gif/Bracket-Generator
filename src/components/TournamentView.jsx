@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { autoPlay, clearMatch, isFinished, progress, resetResults, setScore, swapSlots, swissNextRound } from '../lib/engine.js';
+import { autoPlay, clearMatch, isFinished, progress, resetResults, setDQ, setScore, swapSlots, swissNextRound } from '../lib/engine.js';
 import { encodeShare, toCompact } from '../lib/storage.js';
-import { FORMAT_LABEL, download, isElimination, maps } from '../lib/helpers.js';
+import { FORMAT_LABEL, boLabel, download, isElimination, maps } from '../lib/helpers.js';
 import TournamentBody from './TournamentBody.jsx';
 import ScoreModal from './ScoreModal.jsx';
+import PlayersModal from './PlayersModal.jsx';
 
-export default function TournamentView({ item, onChange, onBack }) {
+export default function TournamentView({ item, onChange, onBack, onEdit }) {
   const t = item.t;
   const [sim, setSim] = useState(null);
   const [upsets, setUpsets] = useState(0.35);
   const [editing, setEditing] = useState(null);
+  const [playersOpen, setPlayersOpen] = useState(false);
   const [notice, setNotice] = useState('');
   const [undo, setUndo] = useState(null); // { prev, label } del último intercambio de jugadores
   const shown = sim || t;
@@ -62,7 +64,14 @@ export default function TournamentView({ item, onChange, onBack }) {
   };
 
   const reset = () => {
-    if (window.confirm('¿Borrar todos los resultados? Se conservan los jugadores y el seeding.')) update(resetResults(t));
+    if (window.confirm('¿Borrar todos los resultados y descalificaciones? Se conservan los jugadores y el seeding.')) update(resetResults(t));
+  };
+
+  // DQ: el jugador pierde por forfeit todo lo que le falte; sus rivales avanzan solos. Devuelve true si se aplicó.
+  const dq = (id, on, matchId = null) => {
+    if (on && !window.confirm(`¿Descalificar a ${names.get(id)}? Pierde este partido y todos los que le falten (sus rivales avanzan solos). Puedes revertirlo con «Reincorporar».`)) return false;
+    update(setDQ(t, id, on, matchId));
+    return true;
   };
 
   const open = (m) => {
@@ -83,7 +92,7 @@ export default function TournamentView({ item, onChange, onBack }) {
           onBlur={(e) => rename(e.target.value.trim())}
         />
         <span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">
-          {FORMAT_LABEL[t.format]} · {t.players.length} jugadores{t.settings.bestOf > 1 ? ` · Bo${t.settings.bestOf}` : ''}
+          {FORMAT_LABEL[t.format]} · {t.players.length} jugadores{boLabel(t) ? ` · ${boLabel(t)}` : ''}
         </span>
       </div>
 
@@ -94,6 +103,8 @@ export default function TournamentView({ item, onChange, onBack }) {
           </div>
           <span className="font-mono text-xs text-slate-400">{prog.done}/{prog.total}{t.format === 'swiss' && !isFinished(t) ? '+' : ''}</span>
         </div>
+        <button type="button" className="btn" onClick={onEdit} disabled={!!sim} title="Volver a la configuración: agregar o quitar jugadores, seeding, formato">✎ Editar torneo</button>
+        <button type="button" className="btn" onClick={() => setPlayersOpen(true)} disabled={!!sim}>👥 Jugadores / DQ</button>
         <button type="button" className="btn" onClick={() => setSim(autoPlay(t, { upsets }))} disabled={isFinished(t) || !!sim}>🎲 Simular lo que falta</button>
         <button type="button" className="btn" onClick={share}>🔗 Compartir enlace</button>
         <button type="button" className="btn" onClick={() => download(`${t.name.replace(/[^\w-]+/g, '_') || 'torneo'}.bracket.json`, JSON.stringify(toCompact(t)))}>⬇ Exportar</button>
@@ -145,9 +156,14 @@ export default function TournamentView({ item, onChange, onBack }) {
           seeds={seeds}
           colors={colors}
           onClose={() => setEditing(null)}
+          onDQ={dq}
           onSave={(a, b) => update(setScore(t, editingMatch.id, a, b))}
           onClear={() => update(clearMatch(t, editingMatch.id))}
         />
+      )}
+
+      {playersOpen && (
+        <PlayersModal t={t} names={names} seeds={seeds} colors={colors} onDQ={dq} onEdit={onEdit} onClose={() => setPlayersOpen(false)} />
       )}
     </div>
   );

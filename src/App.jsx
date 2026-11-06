@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { decodeShare, fromCompact, loadAll, newId, saveAll } from './lib/storage.js';
+import { arrangementOrder } from './lib/engine.js';
 import Home from './components/Home.jsx';
 import Setup from './components/Setup.jsx';
 import TournamentView from './components/TournamentView.jsx';
@@ -39,10 +40,25 @@ export default function App() {
       .finally(() => history.replaceState(null, '', location.pathname + location.search));
   }, []);
 
-  const current = route.view === 'view' ? items.find((i) => i.id === route.id) : null;
+  const current = route.view === 'view' || route.view === 'edit' ? items.find((i) => i.id === route.id) : null;
   useEffect(() => {
-    if (route.view === 'view' && !current) setRoute({ view: 'home', id: null });
+    if ((route.view === 'view' || route.view === 'edit') && !current) setRoute({ view: 'home', id: null });
   }, [route, current]);
+
+  // Al editar, la lista de jugadores sale en el orden que reproduce el acomodo actual del bracket.
+  const editData = (t) => {
+    const { names, exact } = arrangementOrder(t);
+    return { name: t.name, format: t.format, names, settings: t.settings, notExact: !exact };
+  };
+  const editWarning = (t) => {
+    const played = t.matches.filter((m) => m.scoreA != null && m.scoreB != null).length;
+    const dqs = (t.dq || []).length;
+    if (!played && !dqs) return null;
+    const parts = [];
+    if (played) parts.push(`${played} resultado${played > 1 ? 's' : ''}`);
+    if (dqs) parts.push(`${dqs} descalificación${dqs > 1 ? 'es' : ''}`);
+    return `Este torneo ya tiene ${parts.join(' y ')}. Al guardar los cambios se reinician (se conserva el nombre, los jugadores y el seeding que dejes).`;
+  };
 
   const create = (t) => {
     const id = newId();
@@ -83,8 +99,28 @@ export default function App() {
           onImport={importFile}
         />
       )}
-      {route.view === 'setup' && <Setup onCreate={create} onCancel={() => setRoute({ view: 'home', id: null })} />}
-      {current && <TournamentView item={current} onChange={change} onBack={() => setRoute({ view: 'home', id: null })} />}
+      {route.view === 'setup' && <Setup onSubmit={create} onCancel={() => setRoute({ view: 'home', id: null })} />}
+      {route.view === 'edit' && current && (
+        <Setup
+          key={current.id}
+          initial={editData(current.t)}
+          warning={editWarning(current.t)}
+          onSubmit={(t) => {
+            change({ ...current, t, updated: Date.now() });
+            setRoute({ view: 'view', id: current.id });
+            setToast('Torneo actualizado.');
+          }}
+          onCancel={() => setRoute({ view: 'view', id: current.id })}
+        />
+      )}
+      {route.view === 'view' && current && (
+        <TournamentView
+          item={current}
+          onChange={change}
+          onBack={() => setRoute({ view: 'home', id: null })}
+          onEdit={() => setRoute({ view: 'edit', id: current.id })}
+        />
+      )}
       <footer className="mt-12 border-t border-slate-800 pt-4 text-xs text-slate-500">
         Tus torneos se guardan solo en este navegador. Para llevarlos a otro dispositivo usa «Compartir enlace» o «Exportar».
       </footer>

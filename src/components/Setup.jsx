@@ -1,9 +1,26 @@
 import { useDeferredValue, useMemo, useState } from 'react';
-import { DEFAULT_SETTINGS, FORMATS, MAX_PLAYERS, MIN_PLAYERS, autoPlay, createTournament, mulberry32, shuffle, validate } from '../lib/engine.js';
+import { BEST_OF_OPTIONS, DEFAULT_SETTINGS, FORMATS, MAX_PLAYERS, MIN_PLAYERS, autoPlay, createTournament, mulberry32, shuffle, swissRoundCount, validate } from '../lib/engine.js';
 import { FORMAT_DESC, FORMAT_LABEL, isElimination, playerColor } from '../lib/helpers.js';
 import TournamentBody from './TournamentBody.jsx';
 
 const linesOf = (text) => text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+const LATE_LABEL = { quarters: 'Cuartos de final (Top 8)', semis: 'Semifinales (Top 4)', final: 'Solo la final' };
+
+/* Ajustes con los que arranca la pantalla. Al editar vienen del torneo: se normalizan los de versiones
+   anteriores (un solo bestOf) y las rondas del suizo vuelven a "Automático" si eran las automáticas. */
+function initialSettings(s, playerCount) {
+  const base = { ...DEFAULT_SETTINGS, ...(s ?? {}) };
+  if (s && s.bestOf != null && s.bestOfEarly == null && BEST_OF_OPTIONS.includes(s.bestOf)) {
+    base.bestOfEarly = s.bestOf;
+    base.bestOfLate = s.bestOf;
+  }
+  delete base.bestOf;
+  if (!BEST_OF_OPTIONS.includes(base.bestOfEarly)) base.bestOfEarly = DEFAULT_SETTINGS.bestOfEarly;
+  if (!BEST_OF_OPTIONS.includes(base.bestOfLate)) base.bestOfLate = DEFAULT_SETTINGS.bestOfLate;
+  if (base.swissRounds === swissRoundCount(playerCount)) base.swissRounds = 0;
+  return base;
+}
 
 function Check({ label, checked, onChange, hint }) {
   return (
@@ -17,11 +34,15 @@ function Check({ label, checked, onChange, hint }) {
   );
 }
 
-export default function Setup({ onCreate, onCancel }) {
-  const [name, setName] = useState('');
-  const [format, setFormat] = useState('single');
-  const [text, setText] = useState('');
-  const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
+/* Sin `initial` crea un torneo nuevo. Con `initial` ({ name, format, names, settings, notExact }) edita uno existente:
+   la lista ya viene en el orden que reproduce el acomodo actual del bracket. `warning` avisa si guardar borra avance. */
+export default function Setup({ onSubmit, onCancel, initial = null, warning = null }) {
+  const editing = !!initial;
+  const [name, setName] = useState(initial?.name ?? '');
+  const [format, setFormat] = useState(initial?.format ?? 'single');
+  const [text, setText] = useState(initial ? initial.names.join('\n') : '');
+  const [settings, setSettings] = useState(() => initialSettings(initial?.settings, initial?.names.length ?? 0));
+  const [newName, setNewName] = useState('');
   const [simulate, setSimulate] = useState(false);
   const [upsets, setUpsets] = useState(0.35);
   const [simSeed, setSimSeed] = useState(1);
@@ -64,14 +85,37 @@ export default function Setup({ onCreate, onCancel }) {
     setNames(a);
   };
 
+  const addPlayer = () => {
+    const n = newName.trim();
+    if (!n || names.length >= MAX_PLAYERS) return;
+    setNames([...names, n]);
+    setNewName('');
+  };
+
   const submit = () => {
     if (error) return;
-    onCreate(createTournament({ name, format, names, settings }));
+    if (warning && !window.confirm(`${warning}\n\n¿Guardar de todos modos?`)) return;
+    onSubmit(createTournament({ name, format, names, settings }));
   };
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
       <div className="space-y-5">
+        {editing && (
+          <div className="card space-y-2 border-cyan-400/30">
+            <p className="font-mono text-sm text-cyan-300">Editando torneo</p>
+            <p className="text-xs text-slate-400">
+              Agrega o quita jugadores, cambia el seeding (arrastra en la lista o en el bracket de la derecha) o el formato.
+              Al guardar se vuelve a armar el bracket.
+            </p>
+            {initial.notExact && (
+              <p className="text-xs text-amber-300">
+                Habías movido a alguien a un lugar de BYE: ese cambio no se puede conservar al editar y se vuelve al orden de seeds.
+              </p>
+            )}
+            {warning && <p role="alert" className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">{warning}</p>}
+          </div>
+        )}
         <div className="card space-y-4">
           <div>
             <label className="label" htmlFor="t-name">Nombre del torneo</label>
@@ -90,23 +134,53 @@ export default function Setup({ onCreate, onCancel }) {
             <p className="mt-2 text-xs text-slate-400">{FORMAT_DESC[format]}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label" htmlFor="bo">Series</label>
-              <select id="bo" className="field" value={settings.bestOf} onChange={(e) => set('bestOf', Number(e.target.value))}>
-                {[1, 3, 5, 7].map((n) => <option key={n} value={n}>{n === 1 ? 'Partido único' : `Al mejor de ${n}`}</option>)}
-              </select>
-            </div>
-            {format === 'swiss' && (
+          {isElimination({ format }) ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label" htmlFor="bo-early">Rondas iniciales</label>
+                  <select id="bo-early" className="field" value={settings.bestOfEarly} onChange={(e) => set('bestOfEarly', Number(e.target.value))}>
+                    {BEST_OF_OPTIONS.map((n) => <option key={n} value={n}>Al mejor de {n}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label" htmlFor="bo-late">Rondas avanzadas</label>
+                  <select id="bo-late" className="field" value={settings.bestOfLate} onChange={(e) => set('bestOfLate', Number(e.target.value))}>
+                    {BEST_OF_OPTIONS.map((n) => <option key={n} value={n}>Al mejor de {n}</option>)}
+                  </select>
+                </div>
+              </div>
               <div>
-                <label className="label" htmlFor="sr">Rondas</label>
-                <select id="sr" className="field" value={settings.swissRounds} onChange={(e) => set('swissRounds', Number(e.target.value))}>
-                  <option value={0}>Automático</option>
-                  {[2, 3, 4, 5, 6, 7, 8, 9].map((n) => <option key={n} value={n}>{n}</option>)}
+                <label className="label" htmlFor="late-from">Las avanzadas empiezan en</label>
+                <select id="late-from" className="field" value={settings.lateFrom} onChange={(e) => set('lateFrom', e.target.value)}>
+                  {Object.entries(LATE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  {format === 'double'
+                    ? 'La Grand Finals y su reset siempre usan el Bo de las avanzadas; en losers cuentan sus rondas finales.'
+                    : 'La final (y el 3er lugar, si lo activas) siempre usan el Bo de las avanzadas.'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label" htmlFor="bo">Series</label>
+                <select id="bo" className="field" value={settings.bestOfEarly} onChange={(e) => set('bestOfEarly', Number(e.target.value))}>
+                  {BEST_OF_OPTIONS.map((n) => <option key={n} value={n}>Al mejor de {n}</option>)}
                 </select>
               </div>
-            )}
-          </div>
+              {format === 'swiss' && (
+                <div>
+                  <label className="label" htmlFor="sr">Rondas</label>
+                  <select id="sr" className="field" value={settings.swissRounds} onChange={(e) => set('swissRounds', Number(e.target.value))}>
+                    <option value={0}>Automático</option>
+                    {[2, 3, 4, 5, 6, 7, 8, 9].map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
           <div className="space-y-2">
             {format === 'single' && <Check label="Partido por el 3er lugar" checked={settings.thirdPlace} onChange={(v) => set('thirdPlace', v)} />}
             {format === 'double' && <Check label="Final con reset" checked={settings.grandFinalReset} onChange={(v) => set('grandFinalReset', v)} hint="Si gana el de losers la gran final, se juega una segunda (como Start.gg)." />}
@@ -137,6 +211,18 @@ export default function Setup({ onCreate, onCancel }) {
             <button type="button" className="btn btn-ghost !px-2 !py-0.5 text-xs" onClick={() => setNames(Array.from({ length: 8 }, (_, i) => `Jugador ${i + 1}`))}>
               Poner 8 de ejemplo
             </button>
+          </div>
+          <div className="flex gap-2">
+            <input
+              aria-label="Agregar jugador"
+              className="field"
+              value={newName}
+              maxLength={60}
+              placeholder="Agregar jugador y Enter"
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addPlayer())}
+            />
+            <button type="button" className="btn shrink-0" disabled={!newName.trim()} onClick={addPlayer}>+ Agregar</button>
           </div>
           <textarea id="players" className="field h-28 resize-y font-mono" value={text} placeholder={'Uno por línea (pega la lista).\nEl orden es el seeding: el primero es el seed 1.'} onChange={(e) => setText(e.target.value)} />
           <div className="flex flex-wrap gap-2">
@@ -170,7 +256,7 @@ export default function Setup({ onCreate, onCancel }) {
 
         <div className="flex items-center gap-2">
           <button type="button" className="btn" onClick={onCancel}>Cancelar</button>
-          <button type="button" className="btn btn-primary ml-auto" disabled={!!error} onClick={submit}>Crear torneo →</button>
+          <button type="button" className="btn btn-primary ml-auto" disabled={!!error} onClick={submit}>{editing ? 'Guardar cambios' : 'Crear torneo →'}</button>
         </div>
         {error && names.length > 0 && <p className="text-xs text-amber-300">{error}</p>}
       </div>

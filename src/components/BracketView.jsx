@@ -9,12 +9,14 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 /* Lienzo del bracket: se arrastra para moverlo, rueda / pellizco / botones para el zoom,
    y se puede pasar a pantalla completa (útil para proyectarlo o para stream). */
-/* `onSwap` activa el arrastre de nombres: arrastra a un jugador (en cualquier parte del bracket) y suéltalo
-   sobre otra casilla de primera ronda para intercambiarlos. Con ratón empieza al mover; en pantallas
-   táctiles hay que mantener pulsado un momento (si no, el dedo mueve el lienzo). */
+/* `onSwap` activa el arrastre de nombres: agarra a un jugador en cualquier ronda donde aparezca y suéltalo sobre
+   otro jugador (también en cualquier ronda) o sobre un lugar de BYE: se intercambian sus lugares de entrada al
+   bracket. Con ratón empieza al mover; en pantallas táctiles hay que mantener pulsado un momento (si no, el
+   dedo mueve el lienzo). */
 export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen, onSwap, allowBye, readOnly, height = '70vh' }) {
   const layout = useMemo(() => computeLayout(t), [t]);
   const byId = useMemo(() => new Map(t.matches.map((m) => [m.id, m])), [t]);
+  const dqSet = useMemo(() => new Set(t.dq || []), [t]);
   const wrapRef = useRef(null);
   const viewRef = useRef(null);
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
@@ -168,7 +170,13 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
   const dragId = drag?.id;
   useEffect(() => {
     if (!dragId) return undefined;
-    const targetAt = (e) => document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-slot]')?.dataset.slot ?? null;
+    // Destino: 'p:<jugador>' (cualquier aparición de un jugador) o 's:<casilla>' (un lugar de BYE).
+    const targetAt = (e) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-player],[data-slot]');
+      if (!el) return null;
+      if (el.dataset.player) return `p:${el.dataset.player}`;
+      return el.dataset.slot ? `s:${el.dataset.slot}` : null;
+    };
     const move = (e) => {
       e.preventDefault();
       setDrag((d) => (d ? { ...d, x: e.clientX, y: e.clientY, over: targetAt(e) } : d));
@@ -180,10 +188,13 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
       ptrs.current.clear();
       latest.current.setHl?.(null);
       if (!commit || !d) return;
-      const to = targetAt(e);
+      const target = targetAt(e);
+      if (!target) return;
       const { t: cur, onSwap: swap } = latest.current;
       const from = slotOf(cur, d.id);
-      if (to && from && to !== from) swap?.({ from, to, fromPlayer: d.id, toPlayer: playerAt(cur, to) });
+      const toPlayer = target.startsWith('p:') ? target.slice(2) : playerAt(cur, target.slice(2));
+      const to = target.startsWith('p:') ? slotOf(cur, toPlayer) : target.slice(2);
+      if (to && from && to !== from) swap?.({ from, to, fromPlayer: d.id, toPlayer });
     };
     const up = (e) => end(e, true);
     const cancel = (e) => end(e, false);
@@ -204,6 +215,14 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
   const hoverHl = useCallback((v) => {
     if (!dragRef.current) latest.current.setHl?.(v);
   }, []);
+
+  // ¿Esta casilla es el destino que se está señalando? (no se resalta el propio jugador que se arrastra)
+  const over = drag && drag.over !== `p:${drag.id}` ? drag.over : null;
+  const isDrop = (m, side) => {
+    if (!over) return false;
+    if (over.startsWith('p:')) return (side === 'a' ? m.a : m.b) === over.slice(2);
+    return over === `s:${m.id}:${side}`;
+  };
 
   // Referencia estable para que las tarjetas memorizadas no se repinten en cada render.
   const onOpenRef = useRef(onOpen);
@@ -283,8 +302,10 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
               readOnly={readOnly}
               canDrag={canDrag}
               allowBye={allowBye}
-              dropA={drag?.over === `${m.id}:a`}
-              dropB={drag?.over === `${m.id}:b`}
+              dropA={isDrop(m, 'a')}
+              dropB={isDrop(m, 'b')}
+              dqA={dqSet.has(m.a)}
+              dqB={dqSet.has(m.b)}
               x={x}
               y={y}
             />
@@ -298,7 +319,7 @@ export default function BracketView({ t, names, seeds, colors, hl, setHl, onOpen
           style={{ left: drag.x + 14, top: drag.y + 14, color: colors.get(drag.id), borderColor: colors.get(drag.id) }}
         >
           {names.get(drag.id)}
-          <span className="ml-2 text-[11px] font-normal text-slate-400">{drag.over ? 'suelta para intercambiar' : 'suéltalo sobre otro jugador'}</span>
+          <span className="ml-2 text-[11px] font-normal text-slate-400">{over ? 'suelta para intercambiar' : 'suéltalo sobre otro jugador'}</span>
         </div>
       )}
 
