@@ -123,6 +123,12 @@ export default function App() {
       )}
       <footer className="mt-12 border-t border-slate-800 pt-4 text-xs text-slate-500">
         Tus torneos se guardan solo en este navegador. Para llevarlos a otro dispositivo usa «Compartir enlace» o «Exportar».
+        <p className="mt-3">
+          Developed by{' '}
+          <a href="https://hetor.hehurove.workers.dev/es" className="font-semibold text-cyan-300 hover:underline">
+            Hetor
+          </a>
+        </p>
       </footer>
     </div>
   );
