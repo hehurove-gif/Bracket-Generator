@@ -10,7 +10,7 @@ function slotLabel(src, m) {
   return 'Por definir';
 }
 
-function Row({ id, score, isWinner, isLoser, names, seeds, colors, active, setHl, pending, draw, slot, grab, drop }) {
+function Row({ id, score, isWinner, isLoser, names, seeds, colors, active, setHl, pending, draw, slot, grab, drop, ff, dq }) {
   const bye = id === BYE;
   const real = id && !bye;
   const name = real ? names.get(id) : null;
@@ -28,17 +28,18 @@ function Row({ id, score, isWinner, isLoser, names, seeds, colors, active, setHl
     >
       <span className="w-5 shrink-0 text-right font-mono text-[10px] text-slate-500">{real ? seeds.get(id) : ''}</span>
       <span
-        className={`min-w-0 flex-1 truncate ${isWinner ? 'font-bold' : 'font-medium'} ${isLoser ? 'opacity-50' : ''} ${!name ? 'text-xs font-normal italic text-slate-500' : ''}`}
+        className={`min-w-0 flex-1 truncate ${isWinner ? 'font-bold' : 'font-medium'} ${isLoser || dq ? 'opacity-50' : ''} ${dq ? 'line-through' : ''} ${!name ? 'text-xs font-normal italic text-slate-500' : ''}`}
         style={name ? { color } : undefined}
         title={name || undefined}
       >
         {name ?? (bye ? 'BYE' : pending)}
       </span>
       <span
-        className={`w-7 shrink-0 rounded text-center font-mono text-sm ${isWinner ? 'font-bold text-slate-950' : draw ? 'bg-slate-600/60 text-slate-100' : 'bg-slate-800 text-slate-300'} ${score == null ? 'opacity-0' : ''}`}
-        style={isWinner ? { backgroundColor: color } : undefined}
+        className={`w-7 shrink-0 rounded text-center font-mono ${ff === 'dq' ? 'bg-red-500/80 text-[10px] font-bold text-white' : ff === 'win' ? 'text-xs font-bold text-slate-950' : `text-sm ${isWinner ? 'font-bold text-slate-950' : draw ? 'bg-slate-600/60 text-slate-100' : 'bg-slate-800 text-slate-300'}`} ${score == null && !ff ? 'opacity-0' : ''}`}
+        style={isWinner || ff === 'win' ? { backgroundColor: color } : undefined}
+        title={ff === 'dq' ? 'Descalificado (DQ)' : ff === 'win' ? 'Avanza por forfeit' : undefined}
       >
-        {score ?? 0}
+        {ff === 'dq' ? 'DQ' : ff === 'win' ? 'W' : (score ?? 0)}
       </span>
     </div>
   );
@@ -46,7 +47,7 @@ function Row({ id, score, isWinner, isLoser, names, seeds, colors, active, setHl
 
 /* Tarjeta de un partido. En el bracket va en posición absoluta (x, y); en listas ocupa todo el ancho.
    Está memorizada: pasar el cursor sobre un jugador solo vuelve a pintar las tarjetas donde aparece. */
-function MatchCard({ m, names, seeds, colors, hlA, hlB, setHl, onOpen, readOnly, canDrag, allowBye, dropA, dropB, x, y }) {
+function MatchCard({ m, names, seeds, colors, hlA, hlB, setHl, onOpen, readOnly, canDrag, allowBye, dropA, dropB, dqA, dqB, x, y }) {
   const fixed = x != null;
   const clickable = !readOnly && (m.status === 'ready' || m.status === 'done');
   const dim = m.status === 'bye' || m.status === 'skipped';
@@ -69,16 +70,20 @@ function MatchCard({ m, names, seeds, colors, hlA, hlB, setHl, onOpen, readOnly,
       aria-label={clickable ? `Partido ${m.id}: abrir marcador` : undefined}
     >
       <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/50 px-2.5 py-[1px] font-mono text-[10px] text-slate-500">
-        <span>{m.id}</span>
+        <span>
+          {m.id}
+          {m.bo > 1 && <span className="ml-1.5 text-slate-600">Bo{m.bo}</span>}
+        </span>
         <span>
           {m.status === 'ready' && <span className="text-cyan-300">● por jugar</span>}
           {m.status === 'done' && m.draw && 'empate'}
+          {m.forfeit && <span className="text-red-300">forfeit</span>}
           {m.status === 'skipped' && 'no necesario'}
         </span>
       </div>
-      <Row id={m.a} score={m.scoreA} isWinner={winnerA} isLoser={winnerB} names={names} seeds={seeds} colors={colors} active={hlA} setHl={setHl} pending={slotLabel(m.srcA, m)} draw={m.draw} slot={slotFor(m.srcA, 'a')} grab={canDrag} drop={dropA} />
+      <Row id={m.a} score={m.scoreA} isWinner={winnerA} isLoser={winnerB} names={names} seeds={seeds} colors={colors} active={hlA} setHl={setHl} pending={slotLabel(m.srcA, m)} draw={m.draw} slot={slotFor(m.srcA, 'a')} grab={canDrag} drop={dropA} dq={dqA} ff={m.forfeit ? (m.forfeit === 'a' ? 'dq' : 'win') : null} />
       <div className="h-px bg-slate-800" />
-      <Row id={m.b} score={m.scoreB} isWinner={winnerB} isLoser={winnerA} names={names} seeds={seeds} colors={colors} active={hlB} setHl={setHl} pending={slotLabel(m.srcB, m)} draw={m.draw} slot={slotFor(m.srcB, 'b')} grab={canDrag} drop={dropB} />
+      <Row id={m.b} score={m.scoreB} isWinner={winnerB} isLoser={winnerA} names={names} seeds={seeds} colors={colors} active={hlB} setHl={setHl} pending={slotLabel(m.srcB, m)} draw={m.draw} slot={slotFor(m.srcB, 'b')} grab={canDrag} drop={dropB} dq={dqB} ff={m.forfeit ? (m.forfeit === 'b' ? 'dq' : 'win') : null} />
     </div>
   );
 }

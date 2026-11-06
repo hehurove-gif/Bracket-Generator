@@ -25,11 +25,13 @@ export default function Standings({ t, colors, hl, setHl }) {
               key={r.id}
               onMouseEnter={() => setHl?.(r.id)}
               onMouseLeave={() => setHl?.(null)}
-              className={`border-t border-slate-800 ${hl === r.id ? 'bg-cyan-400/10' : ''}`}
+              className={`border-t border-slate-800 ${hl === r.id ? 'bg-cyan-400/10' : ''} ${r.dq ? 'opacity-60' : ''}`}
             >
               <td className="px-3 py-2 font-mono text-slate-400">{i + 1}</td>
               <td className="px-3 py-2 font-semibold" style={{ color: colors.get(r.id) }}>
-                {r.name} <span className="font-mono text-[10px] text-slate-500">seed {r.seed}</span>
+                <span className={r.dq ? 'line-through' : ''}>{r.name}</span>{' '}
+                <span className="font-mono text-[10px] text-slate-500">seed {r.seed}</span>
+                {r.dq && <span className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-300">DQ</span>}
               </td>
               <td className="px-2 py-2 text-center text-slate-300">{r.played}</td>
               <td className="px-2 py-2 text-center text-slate-300">{r.wins}</td>
