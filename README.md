@@ -9,8 +9,12 @@ Hecho con React, Vite y Tailwind CSS. Parte de las herramientas gratuitas de Het
 - **4 formatos** que se eligen al crear el torneo: eliminación simple (con BYEs y 3er lugar opcional), doble eliminación (winners/losers, gran final con reset opcional), round robin (ida y vuelta opcional) y suizo (rondas automáticas, sin revanchas, Buchholz de desempate).
 - **Seeding**: orden manual (arrastrar o flechas), aleatorio, A–Z o invertido, con vista previa en vivo del bracket.
 - **Simular**: prueba cómo terminaría el torneo con tu seeding (con control de "sorpresas") antes de crearlo, o simula lo que falta de un torneo en curso y decide si conservarlo o descartarlo.
-- **Marcadores**: partido único o al mejor de 3/5/7, empates en round robin/suizo. Si corriges un resultado, lo que dependía de él se reinicia solo.
-- **Arrastrar nombres**: en eliminación simple/doble puedes arrastrar a un jugador sobre otro (o sobre un lugar de BYE) para intercambiarlos y adaptar el bracket a mano. Con ratón empieza al mover; en táctil, con pulsación larga. Si el cambio borra resultados pide confirmación y se puede deshacer. En la vista previa de la configuración intercambia los seeds. Los cambios se conservan al compartir/exportar.
+- **Series (Bo) por etapa**: rondas iniciales al mejor de 3 y rondas avanzadas al mejor de 5 (por defecto), con opción de Bo7; tú eliges desde qué ronda empiezan las "avanzadas" (cuartos, semis o final). Grand Finals, reset y 3er lugar siempre son avanzadas. Cada partido muestra su Bo.
+- **Marcadores**: empates en round robin/suizo. Si corriges un resultado, lo que dependía de él se reinicia solo.
+- **Arrastrar nombres**: en eliminación simple/doble puedes arrastrar a un jugador (desde cualquier ronda donde aparezca) sobre otro (o sobre un lugar de BYE) para intercambiarlos y adaptar el bracket a mano. Con ratón empieza al mover; en táctil, con pulsación larga. Si el cambio borra resultados pide confirmación y se puede deshacer. En la vista previa de la configuración intercambia los seeds. Los cambios se conservan al compartir/exportar.
+- **Editar el torneo**: botón "✎ Editar torneo" para volver a la configuración (seeding, acomodo manual, jugadores, formato, Bo) sin empezar de cero; agregar a alguien olvidado es escribir el nombre y Enter. Si ya hay resultados, avisa que se reinician.
+- **DQ**: descalifica a un jugador desde el marcador o desde "👥 Jugadores / DQ". Pierde por forfeit todos sus partidos pendientes (los ya jugados se conservan) y se puede reincorporar.
+- **Grand Finals y reset**: en doble eliminación, final con reset opcional; el reset solo se juega si gana el finalista de losers.
 - **Bracket movible**: arrastrar, zoom con rueda o pellizco, ajustar a pantalla, pantalla completa y resaltado del camino de un jugador.
 - **Compartir**: enlace (el torneo viaja dentro del `#`, comprimido) o archivo `.json`.
 
